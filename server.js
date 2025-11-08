@@ -24,44 +24,40 @@ const VAPI_CONFIG = {
     baseUrl: 'https://api.vapi.ai'
 };
 
+// Call queue and scheduling management
+const CALL_SYSTEM = {
+    activeCalls: 0,
+    maxConcurrent: 10,
+    pendingCalls: [],
+    callResults: [],
+    scheduledCalls: [],
+    timers: []
+};
+
 // Function to format phone number to E.164 format
 function formatPhoneNumber(phone) {
-    // Remove all non-digit characters
     const digitsOnly = phone.replace(/\D/g, '');
     
-    // If it's 10 digits, assume it's a US/Canada number and add +1
     if (digitsOnly.length === 10) {
         return `+1${digitsOnly}`;
     }
     
-    // If it's 11 digits starting with 1, add the +
     if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) {
         return `+${digitsOnly}`;
     }
     
-    // If it already starts with +, return as is
     if (phone.startsWith('+')) {
         return phone;
     }
     
-    // For other cases, assume US/Canada and add +1
     return `+1${digitsOnly}`;
 }
 
-// Serve static files from public directory
-app.use(express.static('public'));
-
-// Configure multer for file uploads
-const upload = multer({ dest: 'uploads/' });
-
-// Serve the main page
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Function to make VAPI call
-async function makeVAPICall(contact) {
+// Function to make VAPI call with queue management
+async function makeVAPICall(contact, index) {
     try {
+        CALL_SYSTEM.activeCalls++;
+        
         const callData = {
             assistantId: VAPI_CONFIG.assistantId,
             phoneNumberId: VAPI_CONFIG.phoneNumberId,
@@ -77,8 +73,7 @@ async function makeVAPICall(contact) {
             }
         };
 
-        console.log('Making VAPI call for:', contact.name, formatPhoneNumber(contact.phone));
-        console.log('Call data:', JSON.stringify(callData, null, 2));
+        console.log(`[${index + 1}] 📞 Making VAPI call for: ${contact.name} ${formatPhoneNumber(contact.phone)}`);
 
         const response = await axios.post(`${VAPI_CONFIG.baseUrl}/call`, callData, {
             headers: {
@@ -87,41 +82,249 @@ async function makeVAPICall(contact) {
             }
         });
 
-        console.log('VAPI call initiated successfully for', contact.name);
-        console.log('Call ID:', response.data.id);
-        return {
+        const result = {
             success: true,
             contact: contact,
             callId: response.data.id,
-            message: `Call initiated for ${contact.name}`
+            message: `Call initiated for ${contact.name}`,
+            timestamp: new Date().toISOString(),
+            index: index,
+            status: 'completed'
         };
+        
+        CALL_SYSTEM.callResults[index] = result;
+        console.log(`[${index + 1}] ✅ VAPI call successful for ${contact.name}`);
+        
+        return result;
 
     } catch (error) {
-        console.error('Error making VAPI call for', contact.name, ':', error.message);
-        
-        // Log more detailed error information
-        if (error.response) {
-            console.error('Error status:', error.response.status);
-            console.error('Error data:', JSON.stringify(error.response.data, null, 2));
-        }
-        
-        return {
+        const result = {
             success: false,
             contact: contact,
             error: error.message,
             errorDetails: error.response?.data,
-            message: `Failed to call ${contact.name}: ${error.message}`
+            message: `Failed to call ${contact.name}: ${error.message}`,
+            timestamp: new Date().toISOString(),
+            index: index,
+            status: 'failed'
         };
+        
+        CALL_SYSTEM.callResults[index] = result;
+        console.error(`[${index + 1}] ❌ Error making VAPI call for ${contact.name}:`, error.message);
+        
+        return result;
+    } finally {
+        CALL_SYSTEM.activeCalls--;
+        processNextCall();
     }
 }
 
-// Handle CSV file upload and processing
+// Function to process next call in queue
+function processNextCall() {
+    if (CALL_SYSTEM.activeCalls < CALL_SYSTEM.maxConcurrent && CALL_SYSTEM.pendingCalls.length > 0) {
+        const nextCall = CALL_SYSTEM.pendingCalls.shift();
+        makeVAPICall(nextCall.contact, nextCall.index);
+    }
+}
+
+// Function to queue call with concurrency control
+function queueCall(contact, index) {
+    if (CALL_SYSTEM.activeCalls < CALL_SYSTEM.maxConcurrent) {
+        makeVAPICall(contact, index);
+    } else {
+        CALL_SYSTEM.pendingCalls.push({ contact, index });
+        console.log(`[${index + 1}] ⏳ Queued call for ${contact.name} (Queue position: ${CALL_SYSTEM.pendingCalls.length})`);
+    }
+}
+
+// Function to schedule calls across time window
+function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
+    // Clear any existing timers
+    CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
+    CALL_SYSTEM.timers = [];
+    
+    // Get current time
+    const now = new Date();
+    
+    console.log(`🐛 DEBUG: Current time: ${now.toLocaleTimeString()}`);
+    
+    // Create today's date times using current date and time
+    const startDateTime = new Date(now);
+    const endDateTime = new Date(now);
+    
+    // Parse time and set hours/minutes
+    const [startHour, startMin] = startTime.split(':');
+    const [endHour, endMin] = endTime.split(':');
+    
+    startDateTime.setHours(parseInt(startHour), parseInt(startMin), 0, 0);
+    endDateTime.setHours(parseInt(endHour), parseInt(endMin), 0, 0);
+    
+    console.log(`🐛 DEBUG: Start DateTime: ${startDateTime.toLocaleTimeString()}`);
+    console.log(`🐛 DEBUG: End DateTime: ${endDateTime.toLocaleTimeString()}`);
+    console.log(`🐛 DEBUG: Start in future? ${startDateTime > now}`);
+    
+    const actualStartTime = startDateTime < now ? now : startDateTime;
+    const windowDurationMs = endDateTime - actualStartTime;
+    
+    console.log(`🐛 DEBUG: Actual start time: ${actualStartTime.toLocaleTimeString()}`);
+    console.log(`🐛 DEBUG: Window duration (ms): ${windowDurationMs}`);
+    console.log(`🐛 DEBUG: Window duration (minutes): ${windowDurationMs / 1000 / 60}`);
+    
+    if (windowDurationMs <= 0) {
+        console.log('⚠️ Time window is in the past or invalid, making calls immediately');
+        contacts.forEach((contact, index) => {
+            queueCall(contact, index);
+        });
+        return;
+    }
+    
+    // Calculate interval between calls
+    const totalCalls = contacts.length;
+    const intervalMs = windowDurationMs / Math.max(1, totalCalls - 1);
+    
+    console.log(`⏰ Scheduling ${totalCalls} calls across time window:`);
+    console.log(`   Start: ${actualStartTime.toLocaleTimeString()}`);
+    console.log(`   End: ${endDateTime.toLocaleTimeString()}`);
+    console.log(`   Interval: ${Math.round(intervalMs / 1000 / 60)} minutes between calls`);
+    
+    // Schedule each call
+    contacts.forEach((contact, index) => {
+        const callTime = new Date(actualStartTime.getTime() + (intervalMs * index));
+        const delayMs = callTime - now;
+        
+        console.log(`🐛 DEBUG [${index + 1}]: Call time: ${callTime.toLocaleTimeString()}, Delay: ${Math.round(delayMs/1000)}s`);
+        
+        // Initialize call result as pending
+        CALL_SYSTEM.callResults[index] = {
+            contact: contact,
+            index: index,
+            status: 'scheduled',
+            scheduledTime: callTime.toISOString(),
+            message: `Scheduled for ${callTime.toLocaleTimeString()}`
+        };
+        
+        if (delayMs <= 0) {
+            console.log(`[${index + 1}] 🚀 Calling ${contact.name} immediately (delay was ${delayMs}ms)`);
+            queueCall(contact, index);
+        } else {
+            console.log(`[${index + 1}] ⏰ Scheduled ${contact.name} for ${callTime.toLocaleTimeString()} (in ${Math.round(delayMs/1000)}s)`);
+            
+            const timer = setTimeout(() => {
+                console.log(`[${index + 1}] 🔔 Timer fired! Time to call ${contact.name}`);
+                queueCall(contact, index);
+            }, delayMs);
+            
+            CALL_SYSTEM.timers.push(timer);
+        }
+    });
+    
+    console.log(`🐛 DEBUG: Set ${CALL_SYSTEM.timers.length} timers`);
+}
+
+// Serve static files from public directory
+app.use(express.static('public'));
+
+// Configure multer for file uploads
+const upload = multer({ dest: 'uploads/' });
+
+// Serve the main page
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Health check route
+app.get('/health', (req, res) => {
+    res.json({ status: 'OK', message: 'Server is running' });
+});
+
+// Handle CSV file upload and processing with time window scheduling
 app.post('/upload', upload.single('csvFile'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
+
+    // Get current call status
+app.get('/status', (req, res) => {
+    const totalCalls = CALL_SYSTEM.callResults.length;
+    const completedCalls = CALL_SYSTEM.callResults.filter(result => result && (result.status === 'completed' || result.status === 'failed')).length;
+    const activeCalls = CALL_SYSTEM.activeCalls;
+    const pendingCalls = CALL_SYSTEM.pendingCalls.length;
+    const scheduledCalls = CALL_SYSTEM.callResults.filter(result => result && result.status === 'scheduled').length;
     
-    console.log('File uploaded:', req.file.filename);
+    res.json({
+        calls: CALL_SYSTEM.callResults,
+        summary: {
+            total: totalCalls,
+            completed: completedCalls,
+            active: activeCalls,
+            pending: pendingCalls,
+            scheduled: scheduledCalls
+        },
+        timers: CALL_SYSTEM.timers.length
+    });
+});
+    
+    const startTime = req.body.startTime;
+    const endTime = req.body.endTime;
+    
+    if (!startTime || !endTime) {
+        return res.status(400).json({ error: 'Start time and end time are required' });
+    }
+    
+    console.log('📁 File uploaded:', req.file.filename);
+    console.log('⏰ Calling window:', startTime, 'to', endTime);
+    
+    // Calculate time window
+    const start = new Date(`2024-01-01 ${startTime}`);
+    const end = new Date(`2024-01-01 ${endTime}`);
+    const windowHours = (end - start) / (1000 * 60 * 60);
+    
+    if (windowHours <= 0) {
+        return res.status(400).json({ error: 'Invalid time window' });
+    }
+
+    // Cancel all scheduled calls
+app.post('/cancel-calls', (req, res) => {
+    try {
+        // Clear all timers
+        const cancelledTimers = CALL_SYSTEM.timers.length;
+        CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
+        CALL_SYSTEM.timers = [];
+        
+        // Clear pending calls queue
+        const cancelledPending = CALL_SYSTEM.pendingCalls.length;
+        CALL_SYSTEM.pendingCalls = [];
+        
+        // Update scheduled calls status to cancelled
+        CALL_SYSTEM.callResults.forEach((result, index) => {
+            if (result && result.status === 'scheduled') {
+                result.status = 'cancelled';
+                result.message = 'Call cancelled by user';
+            }
+        });
+        
+        console.log(`🛑 Cancelled ${cancelledTimers} scheduled calls and ${cancelledPending} pending calls`);
+        
+        res.json({
+            success: true,
+            message: `Cancelled ${cancelledTimers + cancelledPending} upcoming calls. Active calls will complete.`,
+            cancelledTimers: cancelledTimers,
+            cancelledPending: cancelledPending,
+            activeCalls: CALL_SYSTEM.activeCalls
+        });
+        
+    } catch (error) {
+        console.error('Error cancelling calls:', error);
+        res.status(500).json({ error: 'Error cancelling calls' });
+    }
+});
+    
+    // Reset call system for new batch
+    CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
+    CALL_SYSTEM.timers = [];
+    CALL_SYSTEM.pendingCalls = [];
+    CALL_SYSTEM.callResults = [];
+    CALL_SYSTEM.activeCalls = 0;
     
     // Process the CSV file
     const contacts = [];
@@ -130,7 +333,6 @@ app.post('/upload', upload.single('csvFile'), async (req, res) => {
     fs.createReadStream(filePath)
         .pipe(csv())
         .on('data', (row) => {
-            // Add each row to contacts array
             contacts.push({
                 name: row.Name || row.name,
                 phone: row.Phone || row.phone,
@@ -138,52 +340,38 @@ app.post('/upload', upload.single('csvFile'), async (req, res) => {
             });
         })
         .on('end', async () => {
-            console.log('CSV processing complete. Found', contacts.length, 'contacts');
+            console.log(`📊 CSV processing complete. Found ${contacts.length} contacts`);
+            console.log(`⏰ Time window: ${windowHours} hours`);
             
             // Clean up uploaded file
             fs.unlinkSync(filePath);
             
-            // Start making VAPI calls for each contact
-            const results = [];
+            // Initialize call results array
+            CALL_SYSTEM.callResults = new Array(contacts.length);
             
-            for (let i = 0; i < contacts.length; i++) {
-                const contact = contacts[i];
-                console.log(`Processing contact ${i + 1}/${contacts.length}: ${contact.name}`);
-                
-                const result = await makeVAPICall(contact);
-                results.push(result);
-                
-                // Add a small delay between calls to avoid rate limiting
-                if (i < contacts.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-            }
+            // Schedule calls across the time window
+            scheduleCallsAcrossTimeWindow(contacts, startTime, endTime);
             
-            // Send response with all results
-            const successCount = results.filter(r => r.success).length;
-            const failureCount = results.filter(r => !r.success).length;
-            
+            // Send response immediately
             res.json({ 
-                message: `Processing complete! ${successCount} calls initiated, ${failureCount} failed.`,
+                message: `Calls scheduled successfully across time window!`,
                 totalContacts: contacts.length,
-                successCount: successCount,
-                failureCount: failureCount,
-                results: results
+                windowHours: windowHours,
+                startTime: startTime,
+                endTime: endTime,
+                maxConcurrent: CALL_SYSTEM.maxConcurrent,
+                intervalMinutes: Math.round((windowHours * 60) / Math.max(1, contacts.length - 1))
             });
         })
         .on('error', (error) => {
-            console.error('Error processing CSV:', error);
+            console.error('❌ Error processing CSV:', error);
             res.status(500).json({ error: 'Error processing CSV file' });
         });
 });
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log('VAPI Configuration loaded');
-});
-
-// Health check route
-app.get('/health', (req, res) => {
-    res.json({ status: 'OK', message: 'Server is running' });
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log('📞 VAPI Configuration loaded');
+    console.log(`⏳ Call queue configured: Max ${CALL_SYSTEM.maxConcurrent} concurrent calls`);
 });
