@@ -63,6 +63,29 @@ function initializeDatabase() {
     });
 }
 
+        function initializeDatabase() {
+            // ... existing code ...
+            db.run(`CREATE TABLE IF NOT EXISTS calls ...`, (err) => {
+                if (err) {
+                    console.error('❌ Error creating calls table:', err.message);
+                } else {
+                    console.log('✅ Database table initialized');
+                    updateDatabaseSchema(); // ← ADD THIS LINE
+                }
+            });
+        }
+
+// NEW: Add recording_url column to existing database if it doesn't exist
+        function updateDatabaseSchema() {
+            db.run(`ALTER TABLE calls ADD COLUMN recording_url TEXT`, (err) => {
+                if (err && !err.message.includes('duplicate column')) {
+                    console.error('❌ Error adding recording_url column:', err.message);
+                } else if (!err) {
+                    console.log('✅ Added recording_url column to database');
+                }
+            });
+        }
+
 // VAPI Configuration using environment variables
 const VAPI_CONFIG = {
     privateKey: process.env.VAPI_PRIVATE_KEY,
@@ -119,7 +142,7 @@ const DB_HELPERS = {
                 ended_reason = ?, call_outcome = ?, duration = ?, cost = ?,
                 success_evaluation = ?, structured_data = ?, summary = ?,
                 actual_call_time = ?, status = ?, outcome_received = 1,
-                message = ?
+                message = ?, recording_url = ?
             WHERE call_id = ?
         `);
         
@@ -134,6 +157,7 @@ const DB_HELPERS = {
             outcomeData.actualCallTime,
             'completed',
             outcomeData.message,
+            outcomeData.recordingUrl,  // ← ADD THIS LINE
             callId
         ], callback);
         
@@ -171,6 +195,7 @@ const DB_HELPERS = {
                 successEvaluation: row.success_evaluation,
                 structuredData: row.structured_data ? JSON.parse(row.structured_data) : null,
                 summary: row.summary,
+                recordingUrl: row.recording_url,  // ← ADD THIS LINE
                 actualCallTime: row.actual_call_time,
                 message: row.message,
                 timestamp: row.timestamp,
@@ -658,6 +683,7 @@ app.post('/webhook/call-ended', (req, res) => {
                 customerPhoneNumber: callData.message.call?.customer?.number,
                 structuredData: callData.message.analysis?.structuredData || null,
                 summary: callData.message.analysis?.summary || null,
+                recordingUrl: callData.message.recordingUrl || null,  // ← ADD THIS LINE
                 timestamp: new Date().toISOString(),
                 actualCallTime: new Date().toLocaleTimeString()
             };
