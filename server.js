@@ -243,10 +243,12 @@ app.post('/upload', upload.single('csvFile'), async (req, res) => {
         return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Get current call status
+   // Get current call status with outcome data
 app.get('/status', (req, res) => {
     const totalCalls = CALL_SYSTEM.callResults.length;
-    const completedCalls = CALL_SYSTEM.callResults.filter(result => result && (result.status === 'completed' || result.status === 'failed')).length;
+    const completedCalls = CALL_SYSTEM.callResults.filter(result => result && result.status === 'completed').length;
+    const successfulCalls = CALL_SYSTEM.callResults.filter(result => result && result.successEvaluation === 'Pass').length;
+    const failedCalls = CALL_SYSTEM.callResults.filter(result => result && result.successEvaluation === 'Fail').length;
     const activeCalls = CALL_SYSTEM.activeCalls;
     const pendingCalls = CALL_SYSTEM.pendingCalls.length;
     const scheduledCalls = CALL_SYSTEM.callResults.filter(result => result && result.status === 'scheduled').length;
@@ -256,6 +258,8 @@ app.get('/status', (req, res) => {
         summary: {
             total: totalCalls,
             completed: completedCalls,
+            successful: successfulCalls,
+            failed: failedCalls,
             active: activeCalls,
             pending: pendingCalls,
             scheduled: scheduledCalls
@@ -374,4 +378,58 @@ app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log('📞 VAPI Configuration loaded');
     console.log(`⏳ Call queue configured: Max ${CALL_SYSTEM.maxConcurrent} concurrent calls`);
+});
+
+// Middleware to parse JSON bodies
+app.use(express.json());
+
+// VAPI webhook endpoint for call outcomes
+app.post('/webhook/call-ended', (req, res) => {
+    try {
+        const callData = req.body;
+        console.log('📞 Received call outcome webhook:', callData);
+        
+        // Extract outcome information
+        const outcome = {
+            callId: callData.call?.id,
+            endedReason: callData.call?.endedReason,
+            duration: callData.call?.duration,
+            cost: callData.call?.cost,
+            successEvaluation: callData.call?.analysis?.successEvaluation,
+            customerPhoneNumber: callData.call?.customer?.number,
+            timestamp: new Date().toISOString()
+        };
+        
+        console.log('📊 Processed outcome:', outcome);
+        
+        // Find and update the corresponding call in our system
+        const callIndex = CALL_SYSTEM.callResults.findIndex(result => 
+            result && result.callId === outcome.callId
+        );
+        
+        if (callIndex !== -1) {
+            // Update the call result with outcome data
+            CALL_SYSTEM.callResults[callIndex] = {
+                ...CALL_SYSTEM.callResults[callIndex],
+                endedReason: outcome.endedReason,
+                duration: outcome.duration,
+                cost: outcome.cost,
+                successEvaluation: outcome.successEvaluation,
+                status: 'completed',
+                outcomeReceived: true,
+                message: `Call completed: ${outcome.endedReason}${outcome.successEvaluation ? ` (${outcome.successEvaluation})` : ''}`
+            };
+            
+            console.log(`✅ Updated call result for index ${callIndex}`);
+        } else {
+            console.log('⚠️ Could not find matching call for outcome');
+        }
+        
+        // Respond to VAPI that we received the webhook
+        res.status(200).json({ received: true, processed: true });
+        
+    } catch (error) {
+        console.error('❌ Error processing webhook:', error);
+        res.status(500).json({ error: 'Error processing webhook' });
+    }
 });
