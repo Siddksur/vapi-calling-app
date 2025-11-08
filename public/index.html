@@ -6,6 +6,48 @@
     <title>LeadCallr AI Calling App</title>
     <style>
 
+        .summary-short {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .summary-expanded {
+            max-width: 400px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .see-more-btn {
+            color: #007cba;
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: 12px;
+        }
+        .recording-btn {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .recording-btn:hover {
+            background-color: #218838;
+        }
+        .edit-btn {
+            color: #007cba;
+            cursor: pointer;
+            margin-left: 5px;
+            font-size: 12px;
+        }
+        .edit-input {
+            border: 1px solid #007cba;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
         .outcome-interested { color: #28a745; font-weight: bold; }
         .outcome-voicemail { color: #ffc107; font-weight: bold; }
         .outcome-listings { color: #17a2b8; font-weight: bold; }
@@ -403,6 +445,8 @@
                     <th>Status</th>
                     <th>Scheduled Time</th>
                     <th>Outcome</th>
+                    <th>Summary</th>
+                    <th>Recording</th>
                     <th>Details</th>
                 </tr>
             </thead>
@@ -588,15 +632,55 @@ if (call.structuredData) {
             }
         }
         
-        row.innerHTML = `
-            <td>${index + 1}</td>
-            <td>${call.contact.name}</td>
-            <td>${call.contact.phone}</td>
-            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-            <td>${scheduledTime}</td>
-            <td>${outcomeDisplay}</td>
-            <td>${detailsDisplay}</td>
+        // Format summary with see more functionality
+let summaryDisplay = '-';
+if (call.summary) {
+    const shortSummary = call.summary.length > 100 ? 
+        call.summary.substring(0, 100) + '...' : call.summary;
+    
+    if (call.summary.length > 100) {
+        summaryDisplay = `
+            <div class="summary-container">
+                <div class="summary-short" id="summary-short-${index}">
+                    ${shortSummary}
+                    <br><span class="see-more-btn" onclick="toggleSummary(${index})">See more</span>
+                </div>
+                <div class="summary-expanded" id="summary-expanded-${index}" style="display: none;">
+                    ${call.summary}
+                    <br><span class="see-more-btn" onclick="toggleSummary(${index})">See less</span>
+                </div>
+            </div>
         `;
+    } else {
+        summaryDisplay = call.summary;
+    }
+}
+
+// Format recording link
+let recordingDisplay = '-';
+if (call.recordingUrl) {
+    recordingDisplay = `<button class="recording-btn" onclick="window.open('${call.recordingUrl}', '_blank')">🎵 Play</button>`;
+}
+
+row.innerHTML = `
+    <td>${index + 1}</td>
+    <td>
+        <span id="name-display-${index}">${call.contact.name}</span>
+        <span class="edit-btn" onclick="editName(${index})" title="Edit name">✏️</span>
+        <input type="text" id="name-edit-${index}" class="edit-input" value="${call.contact.name}" style="display: none;" onblur="saveName(${index})" onkeypress="if(event.key==='Enter') saveName(${index})">
+    </td>
+    <td>
+        <span id="phone-display-${index}">${call.contact.phone}</span>
+        <span class="edit-btn" onclick="editPhone(${index})" title="Edit phone">✏️</span>
+        <input type="text" id="phone-edit-${index}" class="edit-input" value="${call.contact.phone}" style="display: none;" onblur="savePhone(${index})" onkeypress="if(event.key==='Enter') savePhone(${index})">
+    </td>
+    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+    <td>${scheduledTime}</td>
+    <td>${outcomeDisplay}</td>
+    <td>${summaryDisplay}</td>
+    <td>${recordingDisplay}</td>
+    <td>${detailsDisplay}</td>
+`;
         
         tableBody.appendChild(row);
     }
@@ -743,6 +827,95 @@ rows.forEach(row => {
             // Filter will be applied on next status update
             updateCallStatus();
         }
+
+        // Toggle summary display
+function toggleSummary(index) {
+    const shortDiv = document.getElementById(`summary-short-${index}`);
+    const expandedDiv = document.getElementById(`summary-expanded-${index}`);
+    
+    if (shortDiv.style.display === 'none') {
+        shortDiv.style.display = 'block';
+        expandedDiv.style.display = 'none';
+    } else {
+        shortDiv.style.display = 'none';
+        expandedDiv.style.display = 'block';
+    }
+}
+
+// Edit name functionality
+function editName(index) {
+    const displaySpan = document.getElementById(`name-display-${index}`);
+    const editInput = document.getElementById(`name-edit-${index}`);
+    
+    displaySpan.style.display = 'none';
+    editInput.style.display = 'inline-block';
+    editInput.focus();
+    editInput.select();
+}
+
+function saveName(index) {
+    const displaySpan = document.getElementById(`name-display-${index}`);
+    const editInput = document.getElementById(`name-edit-${index}`);
+    
+    const newName = editInput.value.trim();
+    if (newName) {
+        displaySpan.textContent = newName;
+        // TODO: Update database with new name
+        updateContactInDatabase(index, 'name', newName);
+    }
+    
+    displaySpan.style.display = 'inline';
+    editInput.style.display = 'none';
+}
+
+// Edit phone functionality
+function editPhone(index) {
+    const displaySpan = document.getElementById(`phone-display-${index}`);
+    const editInput = document.getElementById(`phone-edit-${index}`);
+    
+    displaySpan.style.display = 'none';
+    editInput.style.display = 'inline-block';
+    editInput.focus();
+    editInput.select();
+}
+
+function savePhone(index) {
+    const displaySpan = document.getElementById(`phone-display-${index}`);
+    const editInput = document.getElementById(`phone-edit-${index}`);
+    
+    const newPhone = editInput.value.trim();
+    if (newPhone) {
+        displaySpan.textContent = newPhone;
+        // TODO: Update database with new phone
+        updateContactInDatabase(index, 'phone', newPhone);
+    }
+    
+    displaySpan.style.display = 'inline';
+    editInput.style.display = 'none';
+}
+
+// Update contact in database
+async function updateContactInDatabase(index, field, value) {
+    try {
+        const response = await fetch('/update-contact', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                index: index,
+                field: field,
+                value: value
+            })
+        });
+        
+        if (!response.ok) {
+            console.error('Failed to update contact in database');
+        }
+    } catch (error) {
+        console.error('Error updating contact:', error);
+    }
+}
     </script>
 </body>
 </html>
