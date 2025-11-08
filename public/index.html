@@ -5,6 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VAPI Calling App</title>
     <style>
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .filter-btn {
+            padding: 8px 16px;
+            border: 1px solid #dee2e6;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .filter-btn:hover {
+            background: #f8f9fa;
+        }
+        .filter-btn.active {
+            background: #007cba;
+            color: white;
+            border-color: #007cba;
+        }
         body {
             font-family: Arial, sans-serif;
             max-width: 1200px;
@@ -233,9 +254,9 @@
                     <option value="22:30">10:30 PM</option>
                     <option value="22:45">10:45 PM</option>
                     <option value="23:00">11:00 PM</option>
-                    <option value="23:00">11:15 PM</option>
-                    <option value="23:00">11:30 PM</option>
-                    <option value="23:00">11:45 PM</option>
+                    <option value="23:15">11:15 PM</option>
+                    <option value="23:30">11:30 PM</option>
+                    <option value="23:45">11:45 PM</option>
                     
                 </select>
             </div>
@@ -333,6 +354,13 @@
     <!-- Status Display Container -->
     <div id="statusContainer" class="status-container">
         <h3>📊 Call Status Dashboard</h3>
+
+        <div class="filter-buttons" style="margin-bottom: 15px;">
+    <button type="button" onclick="filterCalls('all')" class="filter-btn active" id="filter-all">All Calls</button>
+    <button type="button" onclick="filterCalls('completed')" class="filter-btn" id="filter-completed">Completed</button>
+    <button type="button" onclick="filterCalls('failed')" class="filter-btn" id="filter-failed">Failed</button>
+    <button type="button" onclick="filterCalls('scheduled')" class="filter-btn" id="filter-scheduled">Scheduled</button>
+</div>
         
         <div class="status-summary">
             <div class="status-card">
@@ -431,14 +459,40 @@ tableBody.innerHTML = '';
 data.calls.forEach((call, index) => {
     if (call) {
         const row = document.createElement('tr');
+
+        // Apply current filter
+const rows = tableBody.querySelectorAll('tr');
+rows.forEach(row => {
+    const statusBadge = row.querySelector('.status-badge');
+    if (statusBadge) {
+        const isVisible = currentFilter === 'all' || 
+                         (currentFilter === 'completed' && statusBadge.textContent.includes('✅')) ||
+                         (currentFilter === 'failed' && statusBadge.textContent.includes('❌')) ||
+                         (currentFilter === 'scheduled' && statusBadge.textContent.includes('⏰'));
         
-        const statusClass = call.status === 'completed' ? (call.success ? 'status-completed' : 'status-failed') :
-                          call.status === 'scheduled' ? 'status-scheduled' : 'status-calling';
+        row.style.display = isVisible ? '' : 'none';
+    }
+});
         
-        const statusText = call.status === 'completed' ? (call.success ? '✅ Completed' : '❌ Failed') :
-                         call.status === 'scheduled' ? '⏰ Scheduled' : '📞 Calling';
+        // Determine status display
+        let statusClass, statusText;
+        if (call.status === 'completed') {
+            if (call.success) {
+                statusClass = 'status-completed';
+                statusText = '✅ Completed';
+            } else {
+                statusClass = 'status-failed';
+                statusText = '❌ Failed';
+            }
+        } else if (call.status === 'scheduled') {
+            statusClass = 'status-scheduled';
+            statusText = '⏰ Scheduled';
+        } else {
+            statusClass = 'status-calling';
+            statusText = '📞 Calling';
+        }
         
-        // Fix timezone display - use the local time from message if available
+        // Format scheduled time
         let scheduledTime = '-';
         if (call.scheduledTimeLocal) {
             scheduledTime = call.scheduledTimeLocal;
@@ -446,10 +500,23 @@ data.calls.forEach((call, index) => {
             const date = new Date(call.scheduledTime);
             scheduledTime = date.toLocaleTimeString();
         } else if (call.message && call.message.includes('Scheduled for')) {
-            // Extract time from message as fallback
             const timeMatch = call.message.match(/Scheduled for (.+)/);
             if (timeMatch) {
                 scheduledTime = timeMatch[1];
+            }
+        }
+        
+        // Build detailed message with outcome data
+        let detailedMessage = call.message || '-';
+        if (call.status === 'completed' && call.outcomeReceived) {
+            let outcomeDetails = [];
+            if (call.endedReason) outcomeDetails.push(`Reason: ${call.endedReason}`);
+            if (call.duration) outcomeDetails.push(`Duration: ${Math.round(call.duration)}s`);
+            if (call.cost) outcomeDetails.push(`Cost: $${call.cost.toFixed(4)}`);
+            if (call.successEvaluation) outcomeDetails.push(`Result: ${call.successEvaluation}`);
+            
+            if (outcomeDetails.length > 0) {
+                detailedMessage = outcomeDetails.join(' | ');
             }
         }
         
@@ -459,7 +526,7 @@ data.calls.forEach((call, index) => {
             <td>${call.contact.phone}</td>
             <td><span class="status-badge ${statusClass}">${statusText}</span></td>
             <td>${scheduledTime}</td>
-            <td>${call.message || '-'}</td>
+            <td>${detailedMessage}</td>
         `;
         
         tableBody.appendChild(row);
@@ -579,6 +646,19 @@ data.calls.forEach((call, index) => {
             cancelBtn.disabled = false;
             cancelBtn.textContent = 'Cancel All Calls';
         });
+
+        let currentFilter = 'all';
+
+        function filterCalls(filter) {
+            currentFilter = filter;
+            
+            // Update active button
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`filter-${filter}`).classList.add('active');
+            
+            // Filter will be applied on next status update
+            updateCallStatus();
+        }
     </script>
 </body>
 </html>
