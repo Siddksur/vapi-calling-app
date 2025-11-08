@@ -143,28 +143,31 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
     CALL_SYSTEM.timers = [];
     
-    // Get current time in local timezone
+    // Get current time
     const now = new Date();
     
-    console.log(`🐛 DEBUG: Current server time: ${now.toISOString()} (${now.toLocaleTimeString()})`);
-    console.log(`🐛 DEBUG: Server timezone offset: ${now.getTimezoneOffset()} minutes`);
+    console.log(`🐛 DEBUG: Current server time: ${now.toISOString()}`);
+    console.log(`🐛 DEBUG: Current local time: ${now.toLocaleString()}`);
     
-    // Create today's date times using current date and time
-    const startDateTime = new Date(now);
-    const endDateTime = new Date(now);
-    
-    // Parse time and set hours/minutes
+    // Create start and end times for TODAY in the server's timezone
+    const today = new Date();
     const [startHour, startMin] = startTime.split(':');
     const [endHour, endMin] = endTime.split(':');
     
-    startDateTime.setHours(parseInt(startHour), parseInt(startMin), 0, 0);
-    endDateTime.setHours(parseInt(endHour), parseInt(endMin), 0, 0);
+    const startDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 
+                                   parseInt(startHour), parseInt(startMin), 0);
+    const endDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 
+                                 parseInt(endHour), parseInt(endMin), 0);
     
-    console.log(`🐛 DEBUG: Start DateTime: ${startDateTime.toISOString()} (${startDateTime.toLocaleTimeString()})`);
-    console.log(`🐛 DEBUG: End DateTime: ${endDateTime.toISOString()} (${endDateTime.toLocaleTimeString()})`);
+    console.log(`🐛 DEBUG: Start DateTime: ${startDateTime.toISOString()}`);
+    console.log(`🐛 DEBUG: End DateTime: ${endDateTime.toISOString()}`);
+    console.log(`🐛 DEBUG: Time until start: ${(startDateTime - now) / 1000}s`);
     
+    // If the start time has passed, start immediately
     const actualStartTime = startDateTime < now ? now : startDateTime;
     const windowDurationMs = endDateTime - actualStartTime;
+    
+    console.log(`🐛 DEBUG: Window duration: ${windowDurationMs}ms (${windowDurationMs/1000/60} minutes)`);
     
     if (windowDurationMs <= 0) {
         console.log('⚠️ Time window is in the past or invalid, making calls immediately');
@@ -179,8 +182,8 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     const intervalMs = windowDurationMs / Math.max(1, totalCalls - 1);
     
     console.log(`⏰ Scheduling ${totalCalls} calls across time window:`);
-    console.log(`   Start: ${actualStartTime.toLocaleTimeString()}`);
-    console.log(`   End: ${endDateTime.toLocaleTimeString()}`);
+    console.log(`   Start: ${actualStartTime.toLocaleString()}`);
+    console.log(`   End: ${endDateTime.toLocaleString()}`);
     console.log(`   Interval: ${Math.round(intervalMs / 1000 / 60)} minutes between calls`);
     
     // Schedule each call
@@ -188,20 +191,20 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
         const callTime = new Date(actualStartTime.getTime() + (intervalMs * index));
         const delayMs = callTime - now;
         
-        console.log(`🐛 DEBUG [${index + 1}]: Call time: ${callTime.toISOString()} (${callTime.toLocaleTimeString()}), Delay: ${Math.round(delayMs/1000)}s`);
+        console.log(`🐛 DEBUG [${index + 1}]: Call time: ${callTime.toLocaleString()}, Delay: ${Math.round(delayMs/1000)}s`);
         
-        // Initialize call result as pending - store times consistently
+        // Initialize call result as pending
         CALL_SYSTEM.callResults[index] = {
             contact: contact,
             index: index,
             status: 'scheduled',
-            scheduledTime: callTime.toISOString(), // Store in ISO format
-            scheduledTimeLocal: callTime.toLocaleTimeString(), // Store local time for display
+            scheduledTime: callTime.toISOString(),
+            scheduledTimeLocal: callTime.toLocaleTimeString(),
             message: `Scheduled for ${callTime.toLocaleTimeString()}`
         };
         
         if (delayMs <= 0) {
-            console.log(`[${index + 1}] 🚀 Calling ${contact.name} immediately (delay was ${delayMs}ms)`);
+            console.log(`[${index + 1}] 🚀 Calling ${contact.name} immediately`);
             queueCall(contact, index);
         } else {
             console.log(`[${index + 1}] ⏰ Scheduled ${contact.name} for ${callTime.toLocaleTimeString()} (in ${Math.round(delayMs/1000)}s)`);
