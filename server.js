@@ -392,7 +392,7 @@ app.post('/webhook/call-ended', (req, res) => {
         
         // Handle different webhook message types
         if (callData.message?.type === 'end-of-call-report') {
-            // This is the final call report with all outcome data
+            // Extract data using the actual VAPI structure
             const outcome = {
                 callId: callData.message.call?.id,
                 endedReason: callData.message.endedReason,
@@ -400,10 +400,15 @@ app.post('/webhook/call-ended', (req, res) => {
                 cost: callData.message.cost,
                 successEvaluation: callData.message.analysis?.successEvaluation === 'true' ? 'Pass' : 'Fail',
                 customerPhoneNumber: callData.message.call?.customer?.number,
-                timestamp: new Date().toISOString()
+                structuredData: callData.message.analysis?.structuredData || null, // This is the correct path
+                summary: callData.message.analysis?.summary || null,
+                timestamp: new Date().toISOString(),
+                actualCallTime: new Date().toLocaleTimeString()
             };
             
+            console.log('🎯 CallOutcome from structured data:', outcome.structuredData?.CallOutcome || 'Not available');
             console.log('📊 Processed end-of-call outcome:', outcome);
+            console.log('🏗️ Structured data received:', JSON.stringify(outcome.structuredData, null, 2));
             
             // Find and update the corresponding call in our system
             const callIndex = CALL_SYSTEM.callResults.findIndex(result => 
@@ -412,24 +417,28 @@ app.post('/webhook/call-ended', (req, res) => {
             
             if (callIndex !== -1 && CALL_SYSTEM.callResults[callIndex]) {
                 // Update the call result with outcome data
-                CALL_SYSTEM.callResults[callIndex] = {
-                    ...CALL_SYSTEM.callResults[callIndex],
-                    endedReason: outcome.endedReason,
-                    duration: outcome.duration,
-                    cost: outcome.cost,
-                    successEvaluation: outcome.successEvaluation,
-                    status: 'completed',
-                    success: outcome.successEvaluation === 'Pass',
-                    outcomeReceived: true,
-                    message: `Call completed: ${outcome.endedReason} (${outcome.successEvaluation})`
-                };
+            CALL_SYSTEM.callResults[callIndex] = {
+                ...CALL_SYSTEM.callResults[callIndex],
+                endedReason: outcome.endedReason,
+                duration: outcome.duration,
+                cost: outcome.cost,
+                successEvaluation: outcome.successEvaluation,
+                structuredData: outcome.structuredData,
+                summary: outcome.summary,
+                actualCallTime: outcome.actualCallTime,
+                status: 'completed',
+                success: outcome.successEvaluation === 'Pass',
+                outcomeReceived: true,
+                // Use CallOutcome from structured data if available, fallback to endedReason
+                callOutcome: outcome.structuredData?.CallOutcome || outcome.endedReason,
+                message: `Call completed: ${outcome.structuredData?.CallOutcome || outcome.endedReason} (${outcome.successEvaluation})`
+            };
                 
-                console.log(`✅ Updated call result for index ${callIndex} with outcome data`);
+                console.log(`✅ Updated call result for index ${callIndex} with structured outcome data`);
             } else {
                 console.log('⚠️ Could not find matching call for outcome', outcome.callId);
             }
         } else {
-            // Handle other webhook types (status-update, conversation-update, etc.)
             console.log(`📝 Received ${callData.message?.type} webhook - no action needed`);
         }
         
