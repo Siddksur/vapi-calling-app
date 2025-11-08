@@ -137,37 +137,38 @@ function queueCall(contact, index) {
     }
 }
 
-// Function to schedule calls across time window with proper timezone handling
+// Function to schedule calls across time window with Eastern timezone
 function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     // Clear any existing timers
     CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
     CALL_SYSTEM.timers = [];
     
-    // Get current time
+    // Get current time in Eastern timezone
     const now = new Date();
+    const easternTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
     
-    console.log(`🐛 DEBUG: Current server time: ${now.toISOString()}`);
-    console.log(`🐛 DEBUG: Current local time: ${now.toLocaleString()}`);
+    console.log(`🐛 DEBUG: Server UTC time: ${now.toISOString()}`);
+    console.log(`🐛 DEBUG: Eastern time: ${easternTime.toLocaleString()}`);
     
-    // Create start and end times for TODAY in the server's timezone
-    const today = new Date();
+    // Create start and end times for TODAY in Eastern timezone
     const [startHour, startMin] = startTime.split(':');
     const [endHour, endMin] = endTime.split(':');
     
-    const startDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 
+    // Use Eastern time to create today's schedule
+    const startDateTime = new Date(easternTime.getFullYear(), easternTime.getMonth(), easternTime.getDate(), 
                                    parseInt(startHour), parseInt(startMin), 0);
-    const endDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 
+    const endDateTime = new Date(easternTime.getFullYear(), easternTime.getMonth(), easternTime.getDate(), 
                                  parseInt(endHour), parseInt(endMin), 0);
     
-    console.log(`🐛 DEBUG: Start DateTime: ${startDateTime.toISOString()}`);
-    console.log(`🐛 DEBUG: End DateTime: ${endDateTime.toISOString()}`);
-    console.log(`🐛 DEBUG: Time until start: ${(startDateTime - now) / 1000}s`);
+    console.log(`🐛 DEBUG: Start DateTime: ${startDateTime.toLocaleString()} (${startDateTime.toISOString()})`);
+    console.log(`🐛 DEBUG: End DateTime: ${endDateTime.toLocaleString()} (${endDateTime.toISOString()})`);
     
-    // If the start time has passed, start immediately
-    const actualStartTime = startDateTime < now ? now : startDateTime;
+    // Calculate delays based on actual Eastern time
+    const actualStartTime = startDateTime < easternTime ? easternTime : startDateTime;
     const windowDurationMs = endDateTime - actualStartTime;
     
     console.log(`🐛 DEBUG: Window duration: ${windowDurationMs}ms (${windowDurationMs/1000/60} minutes)`);
+    console.log(`🐛 DEBUG: Time until start: ${(actualStartTime - easternTime)/1000}s`);
     
     if (windowDurationMs <= 0) {
         console.log('⚠️ Time window is in the past or invalid, making calls immediately');
@@ -181,7 +182,7 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     const totalCalls = contacts.length;
     const intervalMs = windowDurationMs / Math.max(1, totalCalls - 1);
     
-    console.log(`⏰ Scheduling ${totalCalls} calls across time window:`);
+    console.log(`⏰ Scheduling ${totalCalls} calls across time window (Eastern Time):`);
     console.log(`   Start: ${actualStartTime.toLocaleString()}`);
     console.log(`   End: ${endDateTime.toLocaleString()}`);
     console.log(`   Interval: ${Math.round(intervalMs / 1000 / 60)} minutes between calls`);
@@ -189,7 +190,7 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     // Schedule each call
     contacts.forEach((contact, index) => {
         const callTime = new Date(actualStartTime.getTime() + (intervalMs * index));
-        const delayMs = callTime - now;
+        const delayMs = callTime - easternTime;
         
         console.log(`🐛 DEBUG [${index + 1}]: Call time: ${callTime.toLocaleString()}, Delay: ${Math.round(delayMs/1000)}s`);
         
