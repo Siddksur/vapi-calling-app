@@ -479,52 +479,65 @@ data.calls.forEach((call, index) => {
             statusText = '⏰ Scheduled';
         }
         
-        // Keep scheduled time visible - show when they were supposed to be called
-        let scheduledTime = '-';
-        if (call.scheduledTimeLocal) {
-            scheduledTime = call.scheduledTimeLocal;
-        } else if (call.scheduledTime) {
-            const date = new Date(call.scheduledTime);
-            scheduledTime = date.toLocaleTimeString();
-        } else if (call.message && call.message.includes('Scheduled for')) {
-            const timeMatch = call.message.match(/Scheduled for (.+)/);
-            if (timeMatch) {
-                scheduledTime = timeMatch[1];
-            }
+    // Keep scheduled time visible - show when they were supposed to be called
+let scheduledTime = '-';
+// Always try to preserve the original scheduled time
+if (call.scheduledTimeLocal) {
+    scheduledTime = call.scheduledTimeLocal;
+} else if (call.scheduledTime) {
+    const date = new Date(call.scheduledTime);
+    scheduledTime = date.toLocaleTimeString();
+} else if (call.message && call.message.includes('Scheduled for')) {
+    const timeMatch = call.message.match(/Scheduled for (.+)/);
+    if (timeMatch) {
+        scheduledTime = timeMatch[1];
+    }
+}
+// If still no scheduled time but call is completed, show "Call completed" instead of "-"
+if (scheduledTime === '-' && call.status === 'completed') {
+    scheduledTime = 'Immediate';
+}
+        
+       // Format structured data outcome
+let outcomeDisplay = '-';
+if (call.structuredData) {
+    const structured = call.structuredData;
+    
+    // Display the main outcome
+    if (structured.CallOutcome) {
+        let outcomeClass = '';
+        switch(structured.CallOutcome) {
+            case 'interested': outcomeClass = 'outcome-interested'; break;
+            case 'voicemail': outcomeClass = 'outcome-voicemail'; break;
+            case 'send_listings': outcomeClass = 'outcome-listings'; break;
+            case 'callback': outcomeClass = 'outcome-callback'; break;
+            case 'not_interested': outcomeClass = 'outcome-not-interested'; break;
+            default: outcomeClass = 'outcome-other';
         }
         
-        // Format structured data outcome
-        let outcomeDisplay = '-';
-        if (call.structuredData) {
-            const structured = call.structuredData;
-            
-            // Display the main outcome
-            if (structured.CallOutcome) {
-                let outcomeClass = '';
-                switch(structured.CallOutcome) {
-                    case 'interested': outcomeClass = 'outcome-interested'; break;
-                    case 'voicemail': outcomeClass = 'outcome-voicemail'; break;
-                    case 'send_listings': outcomeClass = 'outcome-listings'; break;
-                    case 'callback': outcomeClass = 'outcome-callback'; break;
-                    case 'not_interested': outcomeClass = 'outcome-not-interested'; break;
-                    default: outcomeClass = 'outcome-other';
-                }
-                
-                outcomeDisplay = `<span class="${outcomeClass}"><strong>${structured.CallOutcome.toUpperCase()}</strong></span>`;
-                
-                // Add additional structured data details
-                const details = [];
-                if (structured.Answered) details.push(`Answered: ${structured.Answered}`);
-                if (structured.Date) details.push(`Date: ${structured.Date}`);
-                if (structured.Email) details.push(`Email: ${structured.Email}`);
-                
-                if (details.length > 0) {
-                    outcomeDisplay += `<br><small>${details.join(' | ')}</small>`;
-                }
-            }
-        } else if (call.status === 'completed') {
-            outcomeDisplay = call.endedReason || 'No outcome data';
+        outcomeDisplay = `<span class="${outcomeClass}"><strong>${structured.CallOutcome.toUpperCase()}</strong></span>`;
+        
+        // Add additional structured data details
+        const details = [];
+        if (structured.Answered) details.push(`Answered: ${structured.Answered}`);
+        if (structured.Date) details.push(`Date: ${structured.Date}`);
+        if (structured.Email) details.push(`Email: ${structured.Email}`);
+        
+        if (details.length > 0) {
+            outcomeDisplay += `<br><small>${details.join(' | ')}</small>`;
         }
+    }
+} else if (call.status === 'completed') {
+    // For non-structured data, apply styling to basic outcomes too
+    const endedReason = call.endedReason || 'No outcome data';
+    let outcomeClass = 'outcome-other';
+    
+    // Apply styling based on ended reason
+    if (endedReason === 'voicemail') outcomeClass = 'outcome-voicemail';
+    else if (endedReason === 'customer-ended-call') outcomeClass = 'outcome-interested';
+    
+    outcomeDisplay = `<span class="${outcomeClass}"><strong>${endedReason.toUpperCase()}</strong></span>`;
+}
         
         // Build basic details
         let detailsDisplay = call.message || '-';
