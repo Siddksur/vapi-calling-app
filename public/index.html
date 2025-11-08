@@ -541,164 +541,214 @@
                 document.getElementById('progressFill').style.width = `${progress}%`;
                 document.getElementById('progressText').textContent = `${Math.round(progress)}% complete (${data.summary.completed}/${data.summary.total})`;
                 
-               // Update table
-const tableBody = document.getElementById('callsTableBody');
-tableBody.innerHTML = '';
+                // PRESERVE EDIT STATES AND EXPANDED SUMMARIES
+                const tableBody = document.getElementById('callsTableBody');
+                
+                // Save current edit states before updating table
+                const editStates = {};
+                const expandedStates = {};
+                
+                data.calls.forEach((call, index) => {
+                    // Check if name is being edited
+                    const nameEdit = document.getElementById(`name-edit-${index}`);
+                    if (nameEdit && nameEdit.style.display !== 'none') {
+                        editStates[`name-${index}`] = nameEdit.value;
+                    }
+                    
+                    // Check if phone is being edited
+                    const phoneEdit = document.getElementById(`phone-edit-${index}`);
+                    if (phoneEdit && phoneEdit.style.display !== 'none') {
+                        editStates[`phone-${index}`] = phoneEdit.value;
+                    }
+                    
+                    // Check if summary is expanded
+                    const summaryExpanded = document.getElementById(`summary-expanded-${index}`);
+                    if (summaryExpanded && summaryExpanded.style.display !== 'none') {
+                        expandedStates[index] = true;
+                    }
+                });
 
-data.calls.forEach((call, index) => {
-    if (call) {
-        const row = document.createElement('tr');
-        
-        // Determine status display - only Completed or Scheduled
-        let statusClass, statusText;
-        if (call.status === 'completed') {
-            statusClass = 'status-completed';
-            statusText = '✅ Completed';
-        } else {
-            statusClass = 'status-scheduled';
-            statusText = '⏰ Scheduled';
-        }
-        
-    // Keep scheduled time visible - show when they were supposed to be called
-let scheduledTime = '-';
-// Always try to preserve the original scheduled time
-if (call.scheduledTimeLocal) {
-    scheduledTime = call.scheduledTimeLocal;
-} else if (call.scheduledTime) {
-    const date = new Date(call.scheduledTime);
-    scheduledTime = date.toLocaleTimeString();
-} else if (call.message && call.message.includes('Scheduled for')) {
-    const timeMatch = call.message.match(/Scheduled for (.+)/);
-    if (timeMatch) {
-        scheduledTime = timeMatch[1];
-    }
-}
-// If still no scheduled time but call is completed, show "Call completed" instead of "-"
-if (scheduledTime === '-' && call.status === 'completed') {
-    scheduledTime = 'Immediate';
-}
-        
-       // Format structured data outcome
-let outcomeDisplay = '-';
-if (call.structuredData) {
-    const structured = call.structuredData;
-    
-    // Display the main outcome
-    if (structured.CallOutcome) {
-        let outcomeClass = '';
-        switch(structured.CallOutcome) {
-            case 'interested': outcomeClass = 'outcome-interested'; break;
-            case 'voicemail': outcomeClass = 'outcome-voicemail'; break;
-            case 'send_listings': outcomeClass = 'outcome-listings'; break;
-            case 'callback': outcomeClass = 'outcome-callback'; break;
-            case 'not_interested': outcomeClass = 'outcome-not-interested'; break;
-            default: outcomeClass = 'outcome-other';
-        }
-        
-        outcomeDisplay = `<span class="${outcomeClass}"><strong>${structured.CallOutcome.toUpperCase()}</strong></span>`;
-        
-        // Add additional structured data details
-        const details = [];
-        if (structured.Answered) details.push(`Answered: ${structured.Answered}`);
-        if (structured.Date) details.push(`Date: ${structured.Date}`);
-        if (structured.Email) details.push(`Email: ${structured.Email}`);
-        
-        if (details.length > 0) {
-            outcomeDisplay += `<br><small>${details.join(' | ')}</small>`;
-        }
-    }
-} else if (call.status === 'completed') {
-    // For non-structured data, apply styling to basic outcomes too
-    const endedReason = call.endedReason || 'No outcome data';
-    let outcomeClass = 'outcome-other';
-    
-    // Apply styling based on ended reason
-    if (endedReason === 'voicemail') outcomeClass = 'outcome-voicemail';
-    else if (endedReason === 'customer-ended-call') outcomeClass = 'outcome-interested';
-    
-    outcomeDisplay = `<span class="${outcomeClass}"><strong>${endedReason.toUpperCase()}</strong></span>`;
-}
-        
-        // Build basic details
-        let detailsDisplay = call.message || '-';
-        if (call.status === 'completed' && call.outcomeReceived) {
-            let details = [];
-            if (call.endedReason) details.push(`Reason: ${call.endedReason}`);
-            if (call.duration) details.push(`Duration: ${Math.round(call.duration)}s`);
-            if (call.cost) details.push(`Cost: $${call.cost.toFixed(4)}`);
-            
-            if (details.length > 0) {
-                detailsDisplay = details.join(' | ');
-            }
-        }
-        
-        // Format summary with see more functionality
-let summaryDisplay = '-';
-if (call.summary) {
-    const shortSummary = call.summary.length > 100 ? 
-        call.summary.substring(0, 100) + '...' : call.summary;
-    
-    if (call.summary.length > 100) {
-        summaryDisplay = `
-            <div class="summary-container">
-                <div class="summary-short" id="summary-short-${index}">
-                    ${shortSummary}
-                    <br><span class="see-more-btn" onclick="toggleSummary(${index})">See more</span>
-                </div>
-                <div class="summary-expanded" id="summary-expanded-${index}" style="display: none;">
-                    ${call.summary}
-                    <br><span class="see-more-btn" onclick="toggleSummary(${index})">See less</span>
-                </div>
-            </div>
-        `;
-    } else {
-        summaryDisplay = call.summary;
-    }
-}
+                // Update table
+                tableBody.innerHTML = '';
 
-// Format recording link
-let recordingDisplay = '-';
-if (call.recordingUrl) {
-    recordingDisplay = `<button class="recording-btn" onclick="window.open('${call.recordingUrl}', '_blank')">🎵 Play</button>`;
-}
+                data.calls.forEach((call, index) => {
+                    if (call) {
+                        const row = document.createElement('tr');
+                        
+                        // Determine status display - only Completed or Scheduled
+                        let statusClass, statusText;
+                        if (call.status === 'completed') {
+                            statusClass = 'status-completed';
+                            statusText = '✅ Completed';
+                        } else {
+                            statusClass = 'status-scheduled';
+                            statusText = '⏰ Scheduled';
+                        }
+                        
+                        // Keep scheduled time visible - show when they were supposed to be called
+                        let scheduledTime = '-';
+                        if (call.scheduledTimeLocal) {
+                            scheduledTime = call.scheduledTimeLocal;
+                        } else if (call.scheduledTime) {
+                            const date = new Date(call.scheduledTime);
+                            scheduledTime = date.toLocaleTimeString();
+                        } else if (call.message && call.message.includes('Scheduled for')) {
+                            const timeMatch = call.message.match(/Scheduled for (.+)/);
+                            if (timeMatch) {
+                                scheduledTime = timeMatch[1];
+                            }
+                        }
+                        if (scheduledTime === '-' && call.status === 'completed') {
+                            scheduledTime = 'Immediate';
+                        }
+                        
+                        // Format structured data outcome
+                        let outcomeDisplay = '-';
+                        if (call.structuredData) {
+                            const structured = call.structuredData;
+                            
+                            if (structured.CallOutcome) {
+                                let outcomeClass = '';
+                                switch(structured.CallOutcome) {
+                                    case 'interested': outcomeClass = 'outcome-interested'; break;
+                                    case 'voicemail': outcomeClass = 'outcome-voicemail'; break;
+                                    case 'send_listings': outcomeClass = 'outcome-listings'; break;
+                                    case 'callback': outcomeClass = 'outcome-callback'; break;
+                                    case 'not_interested': outcomeClass = 'outcome-not-interested'; break;
+                                    default: outcomeClass = 'outcome-other';
+                                }
+                                
+                                outcomeDisplay = `<span class="${outcomeClass}"><strong>${structured.CallOutcome.toUpperCase()}</strong></span>`;
+                                
+                                const details = [];
+                                if (structured.Answered) details.push(`Answered: ${structured.Answered}`);
+                                if (structured.Date) details.push(`Date: ${structured.Date}`);
+                                if (structured.Email) details.push(`Email: ${structured.Email}`);
+                                
+                                if (details.length > 0) {
+                                    outcomeDisplay += `<br><small>${details.join(' | ')}</small>`;
+                                }
+                            }
+                        } else if (call.status === 'completed') {
+                            const endedReason = call.endedReason || 'No outcome data';
+                            let outcomeClass = 'outcome-other';
+                            
+                            if (endedReason === 'voicemail') outcomeClass = 'outcome-voicemail';
+                            else if (endedReason === 'customer-ended-call') outcomeClass = 'outcome-interested';
+                            
+                            outcomeDisplay = `<span class="${outcomeClass}"><strong>${endedReason.toUpperCase()}</strong></span>`;
+                        }
+                        
+                        // Build basic details
+                        let detailsDisplay = call.message || '-';
+                        if (call.status === 'completed' && call.outcomeReceived) {
+                            let details = [];
+                            if (call.endedReason) details.push(`Reason: ${call.endedReason}`);
+                            if (call.duration) details.push(`Duration: ${Math.round(call.duration)}s`);
+                            if (call.cost) details.push(`Cost: $${call.cost.toFixed(4)}`);
+                            
+                            if (details.length > 0) {
+                                detailsDisplay = details.join(' | ');
+                            }
+                        }
+                        
+                        // Format summary with see more functionality
+                        let summaryDisplay = '-';
+                        if (call.summary) {
+                            const shortSummary = call.summary.length > 100 ? 
+                                call.summary.substring(0, 100) + '...' : call.summary;
+                            
+                            if (call.summary.length > 100) {
+                                const isExpanded = expandedStates[index] === true;
+                                summaryDisplay = `
+                                    <div class="summary-container">
+                                        <div class="summary-short" id="summary-short-${index}" style="${isExpanded ? 'display: none;' : ''}">
+                                            ${shortSummary}
+                                            <br><span class="see-more-btn" onclick="toggleSummary(${index})">See more</span>
+                                        </div>
+                                        <div class="summary-expanded" id="summary-expanded-${index}" style="${isExpanded ? '' : 'display: none;'}">
+                                            ${call.summary}
+                                            <br><span class="see-more-btn" onclick="toggleSummary(${index})">See less</span>
+                                        </div>
+                                    </div>
+                                `;
+                            } else {
+                                summaryDisplay = call.summary;
+                            }
+                        }
 
-row.innerHTML = `
-    <td>${index + 1}</td>
-    <td>
-        <span id="name-display-${index}">${call.contact.name}</span>
-        <span class="edit-btn" onclick="editName(${index})" title="Edit name">✏️</span>
-        <input type="text" id="name-edit-${index}" class="edit-input" value="${call.contact.name}" style="display: none;" onblur="saveName(${index})" onkeypress="if(event.key==='Enter') saveName(${index})">
-    </td>
-    <td>
-        <span id="phone-display-${index}">${call.contact.phone}</span>
-        <span class="edit-btn" onclick="editPhone(${index})" title="Edit phone">✏️</span>
-        <input type="text" id="phone-edit-${index}" class="edit-input" value="${call.contact.phone}" style="display: none;" onblur="savePhone(${index})" onkeypress="if(event.key==='Enter') savePhone(${index})">
-    </td>
-    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-    <td>${scheduledTime}</td>
-    <td>${outcomeDisplay}</td>
-    <td>${summaryDisplay}</td>
-    <td>${recordingDisplay}</td>
-    <td>${detailsDisplay}</td>
-`;
-        
-        tableBody.appendChild(row);
-    }
-});
+                        // Format recording link
+                        let recordingDisplay = '-';
+                        if (call.recordingUrl) {
+                            recordingDisplay = `<button class="recording-btn" onclick="window.open('${call.recordingUrl}', '_blank')">🎵 Play</button>`;
+                        }
 
-// Apply current filter (MOVED OUTSIDE THE LOOP)
-const rows = tableBody.querySelectorAll('tr');
-rows.forEach(row => {
-    const statusBadge = row.querySelector('.status-badge');
-    if (statusBadge) {
-        const isVisible = currentFilter === 'all' || 
-                         (currentFilter === 'completed' && statusBadge.textContent.includes('✅')) ||
-                         (currentFilter === 'failed' && statusBadge.textContent.includes('❌')) ||
-                         (currentFilter === 'scheduled' && statusBadge.textContent.includes('⏰'));
-        
-        row.style.display = isVisible ? '' : 'none';
-    }
-});
+                        // Check if name is being edited
+                        const nameIsEditing = editStates[`name-${index}`] !== undefined;
+                        const currentNameValue = editStates[`name-${index}`] || call.contact.name;
+                        
+                        // Check if phone is being edited  
+                        const phoneIsEditing = editStates[`phone-${index}`] !== undefined;
+                        const currentPhoneValue = editStates[`phone-${index}`] || call.contact.phone;
+
+                        row.innerHTML = `
+                            <td>${index + 1}</td>
+                            <td>
+                                <span id="name-display-${index}" style="${nameIsEditing ? 'display: none;' : ''}">${call.contact.name}</span>
+                                <span class="edit-btn" onclick="editName(${index})" title="Edit name" style="${nameIsEditing ? 'display: none;' : ''}">✏️</span>
+                                <input type="text" id="name-edit-${index}" class="edit-input" value="${currentNameValue}" style="${nameIsEditing ? 'display: inline-block;' : 'display: none;'}" onblur="saveName(${index})" onkeypress="if(event.key==='Enter') saveName(${index})">
+                            </td>
+                            <td>
+                                <span id="phone-display-${index}" style="${phoneIsEditing ? 'display: none;' : ''}">${call.contact.phone}</span>
+                                <span class="edit-btn" onclick="editPhone(${index})" title="Edit phone" style="${phoneIsEditing ? 'display: none;' : ''}">✏️</span>
+                                <input type="text" id="phone-edit-${index}" class="edit-input" value="${currentPhoneValue}" style="${phoneIsEditing ? 'display: inline-block;' : 'display: none;'}" onblur="savePhone(${index})" onkeypress="if(event.key==='Enter') savePhone(${index})">
+                            </td>
+                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                            <td>${scheduledTime}</td>
+                            <td>${outcomeDisplay}</td>
+                            <td>${summaryDisplay}</td>
+                            <td>${recordingDisplay}</td>
+                            <td>${detailsDisplay}</td>
+                        `;
+                        
+                        tableBody.appendChild(row);
+                        
+                        // Restore focus to edit fields if they were active
+                        if (nameIsEditing) {
+                            setTimeout(() => {
+                                const nameEditField = document.getElementById(`name-edit-${index}`);
+                                if (nameEditField) {
+                                    nameEditField.focus();
+                                    nameEditField.setSelectionRange(nameEditField.value.length, nameEditField.value.length);
+                                }
+                            }, 10);
+                        }
+                        
+                        if (phoneIsEditing) {
+                            setTimeout(() => {
+                                const phoneEditField = document.getElementById(`phone-edit-${index}`);
+                                if (phoneEditField) {
+                                    phoneEditField.focus();
+                                    phoneEditField.setSelectionRange(phoneEditField.value.length, phoneEditField.value.length);
+                                }
+                            }, 10);
+                        }
+                    }
+                });
+
+                // Apply current filter
+                const rows = tableBody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const statusBadge = row.querySelector('.status-badge');
+                    if (statusBadge) {
+                        const isVisible = currentFilter === 'all' || 
+                                         (currentFilter === 'completed' && statusBadge.textContent.includes('✅')) ||
+                                         (currentFilter === 'failed' && statusBadge.textContent.includes('❌')) ||
+                                         (currentFilter === 'scheduled' && statusBadge.textContent.includes('⏰'));
+                        
+                        row.style.display = isVisible ? '' : 'none';
+                    }
+                });
                 
             } catch (error) {
                 console.error('Error updating status:', error);
