@@ -137,16 +137,17 @@ function queueCall(contact, index) {
     }
 }
 
-// Function to schedule calls across time window
+// Function to schedule calls across time window with proper timezone handling
 function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     // Clear any existing timers
     CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
     CALL_SYSTEM.timers = [];
     
-    // Get current time
+    // Get current time in local timezone
     const now = new Date();
     
-    console.log(`🐛 DEBUG: Current time: ${now.toLocaleTimeString()}`);
+    console.log(`🐛 DEBUG: Current server time: ${now.toISOString()} (${now.toLocaleTimeString()})`);
+    console.log(`🐛 DEBUG: Server timezone offset: ${now.getTimezoneOffset()} minutes`);
     
     // Create today's date times using current date and time
     const startDateTime = new Date(now);
@@ -159,16 +160,11 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     startDateTime.setHours(parseInt(startHour), parseInt(startMin), 0, 0);
     endDateTime.setHours(parseInt(endHour), parseInt(endMin), 0, 0);
     
-    console.log(`🐛 DEBUG: Start DateTime: ${startDateTime.toLocaleTimeString()}`);
-    console.log(`🐛 DEBUG: End DateTime: ${endDateTime.toLocaleTimeString()}`);
-    console.log(`🐛 DEBUG: Start in future? ${startDateTime > now}`);
+    console.log(`🐛 DEBUG: Start DateTime: ${startDateTime.toISOString()} (${startDateTime.toLocaleTimeString()})`);
+    console.log(`🐛 DEBUG: End DateTime: ${endDateTime.toISOString()} (${endDateTime.toLocaleTimeString()})`);
     
     const actualStartTime = startDateTime < now ? now : startDateTime;
     const windowDurationMs = endDateTime - actualStartTime;
-    
-    console.log(`🐛 DEBUG: Actual start time: ${actualStartTime.toLocaleTimeString()}`);
-    console.log(`🐛 DEBUG: Window duration (ms): ${windowDurationMs}`);
-    console.log(`🐛 DEBUG: Window duration (minutes): ${windowDurationMs / 1000 / 60}`);
     
     if (windowDurationMs <= 0) {
         console.log('⚠️ Time window is in the past or invalid, making calls immediately');
@@ -192,14 +188,15 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
         const callTime = new Date(actualStartTime.getTime() + (intervalMs * index));
         const delayMs = callTime - now;
         
-        console.log(`🐛 DEBUG [${index + 1}]: Call time: ${callTime.toLocaleTimeString()}, Delay: ${Math.round(delayMs/1000)}s`);
+        console.log(`🐛 DEBUG [${index + 1}]: Call time: ${callTime.toISOString()} (${callTime.toLocaleTimeString()}), Delay: ${Math.round(delayMs/1000)}s`);
         
-        // Initialize call result as pending
+        // Initialize call result as pending - store times consistently
         CALL_SYSTEM.callResults[index] = {
             contact: contact,
             index: index,
             status: 'scheduled',
-            scheduledTime: callTime.toISOString(),
+            scheduledTime: callTime.toISOString(), // Store in ISO format
+            scheduledTimeLocal: callTime.toLocaleTimeString(), // Store local time for display
             message: `Scheduled for ${callTime.toLocaleTimeString()}`
         };
         
