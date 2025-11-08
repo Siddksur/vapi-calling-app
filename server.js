@@ -95,7 +95,7 @@ const DB_HELPERS = {
         
         stmt.run([
             callData.contact.name,
-            callData.contact.phone,
+            formatPhoneNumber(callData.contact.phone),  // ← ADD formatPhoneNumber HERE
             callData.contact.address || '',
             callData.callId || null,
             callData.status,
