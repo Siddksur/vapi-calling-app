@@ -4,7 +4,13 @@ const path = require('path');
 const fs = require('fs');
 const csv = require('csv-parser');
 const axios = require('axios');
-require('dotenv').config(); // Load environment variables
+require('dotenv').config();
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = './uploads';
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
