@@ -421,34 +421,47 @@
                 document.getElementById('progressFill').style.width = `${progress}%`;
                 document.getElementById('progressText').textContent = `${Math.round(progress)}% complete (${data.summary.completed}/${data.summary.total})`;
                 
-                // Update table
-                const tableBody = document.getElementById('callsTableBody');
-                tableBody.innerHTML = '';
-                
-                data.calls.forEach((call, index) => {
-                    if (call) {
-                        const row = document.createElement('tr');
-                        
-                        const statusClass = call.status === 'completed' ? (call.success ? 'status-completed' : 'status-failed') :
-                                          call.status === 'scheduled' ? 'status-scheduled' : 'status-calling';
-                        
-                        const statusText = call.status === 'completed' ? (call.success ? '✅ Completed' : '❌ Failed') :
-                                         call.status === 'scheduled' ? '⏰ Scheduled' : '📞 Calling';
-                        
-                        const scheduledTime = call.scheduledTime ? new Date(call.scheduledTime).toLocaleTimeString() : '-';
-                        
-                        row.innerHTML = `
-                            <td>${index + 1}</td>
-                            <td>${call.contact.name}</td>
-                            <td>${call.contact.phone}</td>
-                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td>${scheduledTime}</td>
-                            <td>${call.message || '-'}</td>
-                        `;
-                        
-                        tableBody.appendChild(row);
-                    }
-                });
+               // Update table
+const tableBody = document.getElementById('callsTableBody');
+tableBody.innerHTML = '';
+
+data.calls.forEach((call, index) => {
+    if (call) {
+        const row = document.createElement('tr');
+        
+        const statusClass = call.status === 'completed' ? (call.success ? 'status-completed' : 'status-failed') :
+                          call.status === 'scheduled' ? 'status-scheduled' : 'status-calling';
+        
+        const statusText = call.status === 'completed' ? (call.success ? '✅ Completed' : '❌ Failed') :
+                         call.status === 'scheduled' ? '⏰ Scheduled' : '📞 Calling';
+        
+        // Fix timezone display - use the local time from message if available
+        let scheduledTime = '-';
+        if (call.scheduledTimeLocal) {
+            scheduledTime = call.scheduledTimeLocal;
+        } else if (call.scheduledTime) {
+            const date = new Date(call.scheduledTime);
+            scheduledTime = date.toLocaleTimeString();
+        } else if (call.message && call.message.includes('Scheduled for')) {
+            // Extract time from message as fallback
+            const timeMatch = call.message.match(/Scheduled for (.+)/);
+            if (timeMatch) {
+                scheduledTime = timeMatch[1];
+            }
+        }
+        
+        row.innerHTML = `
+            <td>${index + 1}</td>
+            <td>${call.contact.name}</td>
+            <td>${call.contact.phone}</td>
+            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+            <td>${scheduledTime}</td>
+            <td>${call.message || '-'}</td>
+        `;
+        
+        tableBody.appendChild(row);
+    }
+});
                 
             } catch (error) {
                 console.error('Error updating status:', error);
