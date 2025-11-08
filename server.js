@@ -47,6 +47,7 @@ function initializeDatabase() {
             success_evaluation TEXT,
             structured_data TEXT,
             summary TEXT,
+            recording_url TEXT,
             actual_call_time TEXT,
             message TEXT,
             timestamp TEXT,
@@ -59,6 +60,15 @@ function initializeDatabase() {
             console.error('❌ Error creating calls table:', err.message);
         } else {
             console.log('✅ Database table initialized');
+            
+            // Try to add recording_url column to existing databases
+            db.run(`ALTER TABLE calls ADD COLUMN recording_url TEXT`, (alterErr) => {
+                if (alterErr && !alterErr.message.includes('duplicate column')) {
+                    console.log('⚠️ Could not add recording_url column (table might already have it):', alterErr.message);
+                } else if (!alterErr) {
+                    console.log('✅ Added recording_url column to existing database');
+                }
+            });
         }
     });
 }
