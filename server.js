@@ -182,3 +182,8 @@ app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log('VAPI Configuration loaded');
 });
+
+// Health check route
+app.get('/health', (req, res) => {
+    res.json({ status: 'OK', message: 'Server is running' });
+});
