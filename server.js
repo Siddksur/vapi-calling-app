@@ -388,42 +388,49 @@ app.use(express.json());
 app.post('/webhook/call-ended', (req, res) => {
     try {
         const callData = req.body;
-        console.log('📞 Received call outcome webhook:', callData);
+        console.log('📞 Received call outcome webhook:', callData.message?.type || 'unknown type');
         
-        // Extract outcome information
-        const outcome = {
-            callId: callData.call?.id,
-            endedReason: callData.call?.endedReason,
-            duration: callData.call?.duration,
-            cost: callData.call?.cost,
-            successEvaluation: callData.call?.analysis?.successEvaluation,
-            customerPhoneNumber: callData.call?.customer?.number,
-            timestamp: new Date().toISOString()
-        };
-        
-        console.log('📊 Processed outcome:', outcome);
-        
-        // Find and update the corresponding call in our system
-        const callIndex = CALL_SYSTEM.callResults.findIndex(result => 
-            result && result.callId === outcome.callId
-        );
-        
-        if (callIndex !== -1) {
-            // Update the call result with outcome data
-            CALL_SYSTEM.callResults[callIndex] = {
-                ...CALL_SYSTEM.callResults[callIndex],
-                endedReason: outcome.endedReason,
-                duration: outcome.duration,
-                cost: outcome.cost,
-                successEvaluation: outcome.successEvaluation,
-                status: 'completed',
-                outcomeReceived: true,
-                message: `Call completed: ${outcome.endedReason}${outcome.successEvaluation ? ` (${outcome.successEvaluation})` : ''}`
+        // Handle different webhook message types
+        if (callData.message?.type === 'end-of-call-report') {
+            // This is the final call report with all outcome data
+            const outcome = {
+                callId: callData.message.call?.id,
+                endedReason: callData.message.endedReason,
+                duration: callData.message.durationSeconds,
+                cost: callData.message.cost,
+                successEvaluation: callData.message.analysis?.successEvaluation === 'true' ? 'Pass' : 'Fail',
+                customerPhoneNumber: callData.message.call?.customer?.number,
+                timestamp: new Date().toISOString()
             };
             
-            console.log(`✅ Updated call result for index ${callIndex}`);
+            console.log('📊 Processed end-of-call outcome:', outcome);
+            
+            // Find and update the corresponding call in our system
+            const callIndex = CALL_SYSTEM.callResults.findIndex(result => 
+                result && result.callId === outcome.callId
+            );
+            
+            if (callIndex !== -1 && CALL_SYSTEM.callResults[callIndex]) {
+                // Update the call result with outcome data
+                CALL_SYSTEM.callResults[callIndex] = {
+                    ...CALL_SYSTEM.callResults[callIndex],
+                    endedReason: outcome.endedReason,
+                    duration: outcome.duration,
+                    cost: outcome.cost,
+                    successEvaluation: outcome.successEvaluation,
+                    status: 'completed',
+                    success: outcome.successEvaluation === 'Pass',
+                    outcomeReceived: true,
+                    message: `Call completed: ${outcome.endedReason} (${outcome.successEvaluation})`
+                };
+                
+                console.log(`✅ Updated call result for index ${callIndex} with outcome data`);
+            } else {
+                console.log('⚠️ Could not find matching call for outcome', outcome.callId);
+            }
         } else {
-            console.log('⚠️ Could not find matching call for outcome');
+            // Handle other webhook types (status-update, conversation-update, etc.)
+            console.log(`📝 Received ${callData.message?.type} webhook - no action needed`);
         }
         
         // Respond to VAPI that we received the webhook
