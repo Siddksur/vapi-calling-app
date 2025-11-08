@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const csv = require('csv-parser');
 const axios = require('axios');
+const sqlite3 = require('sqlite3').verbose(); // NEW: Import SQLite
 require('dotenv').config();
 
 // Create uploads directory if it doesn't exist
@@ -15,6 +16,53 @@ if (!fs.existsSync(uploadsDir)) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// NEW: Database setup
+const dbPath = './calls.db';
+const db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+        console.error('❌ Error opening database:', err.message);
+    } else {
+        console.log('📀 Connected to SQLite database:', dbPath);
+        initializeDatabase();
+    }
+});
+
+// NEW: Initialize database tables
+function initializeDatabase() {
+    // Create calls table if it doesn't exist
+    db.run(`
+        CREATE TABLE IF NOT EXISTS calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_name TEXT NOT NULL,
+            contact_phone TEXT NOT NULL,
+            contact_address TEXT,
+            call_id TEXT,
+            status TEXT DEFAULT 'scheduled',
+            scheduled_time TEXT,
+            scheduled_time_local TEXT,
+            ended_reason TEXT,
+            call_outcome TEXT,
+            duration REAL,
+            cost REAL,
+            success_evaluation TEXT,
+            structured_data TEXT,
+            summary TEXT,
+            actual_call_time TEXT,
+            message TEXT,
+            timestamp TEXT,
+            campaign_id TEXT,
+            index_position INTEGER,
+            outcome_received INTEGER DEFAULT 0
+        )
+    `, (err) => {
+        if (err) {
+            console.error('❌ Error creating calls table:', err.message);
+        } else {
+            console.log('✅ Database table initialized');
+        }
+    });
+}
+
 // VAPI Configuration using environment variables
 const VAPI_CONFIG = {
     privateKey: process.env.VAPI_PRIVATE_KEY,
@@ -24,14 +72,132 @@ const VAPI_CONFIG = {
     baseUrl: 'https://api.vapi.ai'
 };
 
-// Call queue and scheduling management
+// UPDATED: Call queue and scheduling management (still use memory for active operations)
 const CALL_SYSTEM = {
     activeCalls: 0,
     maxConcurrent: 10,
     pendingCalls: [],
-    callResults: [],
-    scheduledCalls: [],
-    timers: []
+    timers: [],
+    currentCampaignId: null // NEW: Track current campaign
+};
+
+// NEW: Database helper functions
+const DB_HELPERS = {
+    // Save a call to database
+    saveCall: (callData, callback) => {
+        const stmt = db.prepare(`
+            INSERT INTO calls (
+                contact_name, contact_phone, contact_address, call_id, status,
+                scheduled_time, scheduled_time_local, message, timestamp,
+                campaign_id, index_position
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        
+        stmt.run([
+            callData.contact.name,
+            callData.contact.phone,
+            callData.contact.address || '',
+            callData.callId || null,
+            callData.status,
+            callData.scheduledTime || null,
+            callData.scheduledTimeLocal || null,
+            callData.message || '',
+            callData.timestamp,
+            CALL_SYSTEM.currentCampaignId,
+            callData.index
+        ], function(err) {
+            if (callback) callback(err, this.lastID);
+        });
+        
+        stmt.finalize();
+    },
+    
+    // Update call with outcome data
+    updateCallOutcome: (callId, outcomeData, callback) => {
+        const stmt = db.prepare(`
+            UPDATE calls SET 
+                ended_reason = ?, call_outcome = ?, duration = ?, cost = ?,
+                success_evaluation = ?, structured_data = ?, summary = ?,
+                actual_call_time = ?, status = ?, outcome_received = 1,
+                message = ?
+            WHERE call_id = ?
+        `);
+        
+        stmt.run([
+            outcomeData.endedReason,
+            outcomeData.callOutcome,
+            outcomeData.duration,
+            outcomeData.cost,
+            outcomeData.successEvaluation,
+            JSON.stringify(outcomeData.structuredData),
+            outcomeData.summary,
+            outcomeData.actualCallTime,
+            'completed',
+            outcomeData.message,
+            callId
+        ], callback);
+        
+        stmt.finalize();
+    },
+    
+    // Get all calls for current campaign
+    getCurrentCalls: (callback) => {
+        db.all(`
+            SELECT * FROM calls 
+            WHERE campaign_id = ? 
+            ORDER BY index_position
+        `, [CALL_SYSTEM.currentCampaignId], (err, rows) => {
+            if (err) {
+                console.error('❌ Error fetching calls:', err);
+                callback(err, []);
+                return;
+            }
+            
+            // Convert database rows back to our format
+            const calls = rows.map(row => ({
+                contact: {
+                    name: row.contact_name,
+                    phone: row.contact_phone,
+                    address: row.contact_address
+                },
+                callId: row.call_id,
+                status: row.status,
+                scheduledTime: row.scheduled_time,
+                scheduledTimeLocal: row.scheduled_time_local,
+                endedReason: row.ended_reason,
+                callOutcome: row.call_outcome,
+                duration: row.duration,
+                cost: row.cost,
+                successEvaluation: row.success_evaluation,
+                structuredData: row.structured_data ? JSON.parse(row.structured_data) : null,
+                summary: row.summary,
+                actualCallTime: row.actual_call_time,
+                message: row.message,
+                timestamp: row.timestamp,
+                index: row.index_position,
+                outcomeReceived: row.outcome_received === 1,
+                success: row.success_evaluation === 'Pass'
+            }));
+            
+            callback(null, calls);
+        });
+    },
+    
+    // Clear old campaign data (optional - for cleanup)
+    clearOldCampaigns: (daysOld = 7) => {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+        
+        db.run(`
+            DELETE FROM calls 
+            WHERE timestamp < ? 
+            AND status IN ('completed', 'cancelled', 'failed')
+        `, [cutoffDate.toISOString()], function(err) {
+            if (!err && this.changes > 0) {
+                console.log(`🧹 Cleaned up ${this.changes} old call records`);
+            }
+        });
+    }
 };
 
 // Function to format phone number to E.164 format
@@ -53,7 +219,7 @@ function formatPhoneNumber(phone) {
     return `+1${digitsOnly}`;
 }
 
-// Function to make VAPI call with queue management
+// UPDATED: Function to make VAPI call with database integration
 async function makeVAPICall(contact, index) {
     try {
         CALL_SYSTEM.activeCalls++;
@@ -82,37 +248,58 @@ async function makeVAPICall(contact, index) {
             }
         });
 
-        const result = {
+        // NEW: Update database with call ID
+        const updateData = {
+            callId: response.data.id,
+            status: 'calling',
+            message: `Call initiated for ${contact.name}`,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Update in database
+        db.run(`
+            UPDATE calls SET 
+                call_id = ?, status = ?, message = ?, timestamp = ?
+            WHERE contact_phone = ? AND campaign_id = ? AND index_position = ?
+        `, [
+            response.data.id, 'calling', updateData.message, updateData.timestamp,
+            formatPhoneNumber(contact.phone), CALL_SYSTEM.currentCampaignId, index
+        ]);
+
+        console.log(`[${index + 1}] ✅ VAPI call successful for ${contact.name}`);
+        
+        return {
             success: true,
             contact: contact,
             callId: response.data.id,
-            message: `Call initiated for ${contact.name}`,
-            timestamp: new Date().toISOString(),
+            message: updateData.message,
+            timestamp: updateData.timestamp,
             index: index,
-            status: 'completed'
+            status: 'calling'
         };
-        
-        CALL_SYSTEM.callResults[index] = result;
-        console.log(`[${index + 1}] ✅ VAPI call successful for ${contact.name}`);
-        
-        return result;
 
     } catch (error) {
-        const result = {
+        // NEW: Update database with error
+        db.run(`
+            UPDATE calls SET 
+                status = ?, message = ?
+            WHERE contact_phone = ? AND campaign_id = ? AND index_position = ?
+        `, [
+            'failed', `Failed to call ${contact.name}: ${error.message}`,
+            formatPhoneNumber(contact.phone), CALL_SYSTEM.currentCampaignId, index
+        ]);
+
+        console.error(`[${index + 1}] ❌ Error making VAPI call for ${contact.name}:`, error.message);
+        
+        return {
             success: false,
             contact: contact,
             error: error.message,
-            errorDetails: error.response?.data,
             message: `Failed to call ${contact.name}: ${error.message}`,
             timestamp: new Date().toISOString(),
             index: index,
             status: 'failed'
         };
-        
-        CALL_SYSTEM.callResults[index] = result;
-        console.error(`[${index + 1}] ❌ Error making VAPI call for ${contact.name}:`, error.message);
-        
-        return result;
     } finally {
         CALL_SYSTEM.activeCalls--;
         processNextCall();
@@ -137,7 +324,7 @@ function queueCall(contact, index) {
     }
 }
 
-// Function to schedule calls across time window with Eastern timezone
+// UPDATED: Function to schedule calls with database persistence
 function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     // Clear any existing timers
     CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
@@ -187,22 +374,31 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     console.log(`   End: ${endDateTime.toLocaleString()}`);
     console.log(`   Interval: ${Math.round(intervalMs / 1000 / 60)} minutes between calls`);
     
-    // Schedule each call
+    // Schedule each call and save to database
     contacts.forEach((contact, index) => {
         const callTime = new Date(actualStartTime.getTime() + (intervalMs * index));
         const delayMs = callTime - easternTime;
         
         console.log(`🐛 DEBUG [${index + 1}]: Call time: ${callTime.toLocaleString()}, Delay: ${Math.round(delayMs/1000)}s`);
         
-        // Initialize call result as pending
-        CALL_SYSTEM.callResults[index] = {
+        // NEW: Save to database immediately
+        const callData = {
             contact: contact,
             index: index,
             status: 'scheduled',
             scheduledTime: callTime.toISOString(),
             scheduledTimeLocal: callTime.toLocaleTimeString(),
-            message: `Scheduled for ${callTime.toLocaleTimeString()}`
+            message: `Scheduled for ${callTime.toLocaleTimeString()}`,
+            timestamp: new Date().toISOString()
         };
+        
+        DB_HELPERS.saveCall(callData, (err, dbId) => {
+            if (err) {
+                console.error(`❌ Error saving call to database:`, err);
+            } else {
+                console.log(`💾 Saved call ${index + 1} to database with ID ${dbId}`);
+            }
+        });
         
         if (delayMs <= 0) {
             console.log(`[${index + 1}] 🚀 Calling ${contact.name} immediately`);
@@ -238,36 +434,42 @@ app.get('/health', (req, res) => {
     res.json({ status: 'OK', message: 'Server is running' });
 });
 
+// UPDATED: Get current call status from database
+app.get('/status', (req, res) => {
+    DB_HELPERS.getCurrentCalls((err, calls) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error fetching call data' });
+        }
+        
+        const totalCalls = calls.length;
+        const completedCalls = calls.filter(call => call.status === 'completed').length;
+        const successfulCalls = calls.filter(call => call.successEvaluation === 'Pass').length;
+        const failedCalls = calls.filter(call => call.successEvaluation === 'Fail').length;
+        const activeCalls = CALL_SYSTEM.activeCalls;
+        const pendingCalls = CALL_SYSTEM.pendingCalls.length;
+        const scheduledCalls = calls.filter(call => call.status === 'scheduled').length;
+        
+        res.json({
+            calls: calls,
+            summary: {
+                total: totalCalls,
+                completed: completedCalls,
+                successful: successfulCalls,
+                failed: failedCalls,
+                active: activeCalls,
+                pending: pendingCalls,
+                scheduled: scheduledCalls
+            },
+            timers: CALL_SYSTEM.timers.length
+        });
+    });
+});
+
 // Handle CSV file upload and processing with time window scheduling
 app.post('/upload', upload.single('csvFile'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
-
-   // Get current call status with outcome data
-app.get('/status', (req, res) => {
-    const totalCalls = CALL_SYSTEM.callResults.length;
-    const completedCalls = CALL_SYSTEM.callResults.filter(result => result && result.status === 'completed').length;
-    const successfulCalls = CALL_SYSTEM.callResults.filter(result => result && result.successEvaluation === 'Pass').length;
-    const failedCalls = CALL_SYSTEM.callResults.filter(result => result && result.successEvaluation === 'Fail').length;
-    const activeCalls = CALL_SYSTEM.activeCalls;
-    const pendingCalls = CALL_SYSTEM.pendingCalls.length;
-    const scheduledCalls = CALL_SYSTEM.callResults.filter(result => result && result.status === 'scheduled').length;
-    
-    res.json({
-        calls: CALL_SYSTEM.callResults,
-        summary: {
-            total: totalCalls,
-            completed: completedCalls,
-            successful: successfulCalls,
-            failed: failedCalls,
-            active: activeCalls,
-            pending: pendingCalls,
-            scheduled: scheduledCalls
-        },
-        timers: CALL_SYSTEM.timers.length
-    });
-});
     
     const startTime = req.body.startTime;
     const endTime = req.body.endTime;
@@ -287,48 +489,15 @@ app.get('/status', (req, res) => {
     if (windowHours <= 0) {
         return res.status(400).json({ error: 'Invalid time window' });
     }
-
-    // Cancel all scheduled calls
-app.post('/cancel-calls', (req, res) => {
-    try {
-        // Clear all timers
-        const cancelledTimers = CALL_SYSTEM.timers.length;
-        CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
-        CALL_SYSTEM.timers = [];
-        
-        // Clear pending calls queue
-        const cancelledPending = CALL_SYSTEM.pendingCalls.length;
-        CALL_SYSTEM.pendingCalls = [];
-        
-        // Update scheduled calls status to cancelled
-        CALL_SYSTEM.callResults.forEach((result, index) => {
-            if (result && result.status === 'scheduled') {
-                result.status = 'cancelled';
-                result.message = 'Call cancelled by user';
-            }
-        });
-        
-        console.log(`🛑 Cancelled ${cancelledTimers} scheduled calls and ${cancelledPending} pending calls`);
-        
-        res.json({
-            success: true,
-            message: `Cancelled ${cancelledTimers + cancelledPending} upcoming calls. Active calls will complete.`,
-            cancelledTimers: cancelledTimers,
-            cancelledPending: cancelledPending,
-            activeCalls: CALL_SYSTEM.activeCalls
-        });
-        
-    } catch (error) {
-        console.error('Error cancelling calls:', error);
-        res.status(500).json({ error: 'Error cancelling calls' });
-    }
-});
     
-    // Reset call system for new batch
+    // NEW: Create unique campaign ID
+    CALL_SYSTEM.currentCampaignId = `campaign_${Date.now()}`;
+    console.log('🎯 Created new campaign:', CALL_SYSTEM.currentCampaignId);
+    
+    // Cancel existing timers
     CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
     CALL_SYSTEM.timers = [];
     CALL_SYSTEM.pendingCalls = [];
-    CALL_SYSTEM.callResults = [];
     CALL_SYSTEM.activeCalls = 0;
     
     // Process the CSV file
@@ -351,10 +520,7 @@ app.post('/cancel-calls', (req, res) => {
             // Clean up uploaded file
             fs.unlinkSync(filePath);
             
-            // Initialize call results array
-            CALL_SYSTEM.callResults = new Array(contacts.length);
-            
-            // Schedule calls across the time window
+            // Schedule calls across the time window (now saves to database)
             scheduleCallsAcrossTimeWindow(contacts, startTime, endTime);
             
             // Send response immediately
@@ -365,13 +531,58 @@ app.post('/cancel-calls', (req, res) => {
                 startTime: startTime,
                 endTime: endTime,
                 maxConcurrent: CALL_SYSTEM.maxConcurrent,
-                intervalMinutes: Math.round((windowHours * 60) / Math.max(1, contacts.length - 1))
+                intervalMinutes: Math.round((windowHours * 60) / Math.max(1, contacts.length - 1)),
+                campaignId: CALL_SYSTEM.currentCampaignId
             });
         })
         .on('error', (error) => {
             console.error('❌ Error processing CSV:', error);
             res.status(500).json({ error: 'Error processing CSV file' });
         });
+});
+
+// Cancel all scheduled calls
+app.post('/cancel-calls', (req, res) => {
+    try {
+        // Clear all timers
+        const cancelledTimers = CALL_SYSTEM.timers.length;
+        CALL_SYSTEM.timers.forEach(timer => clearTimeout(timer));
+        CALL_SYSTEM.timers = [];
+        
+        // Clear pending calls queue
+        const cancelledPending = CALL_SYSTEM.pendingCalls.length;
+        CALL_SYSTEM.pendingCalls = [];
+        
+        // NEW: Update database to mark scheduled calls as cancelled
+        if (CALL_SYSTEM.currentCampaignId) {
+            db.run(`
+                UPDATE calls SET 
+                    status = 'cancelled', 
+                    message = 'Call cancelled by user'
+                WHERE campaign_id = ? AND status = 'scheduled'
+            `, [CALL_SYSTEM.currentCampaignId], function(err) {
+                if (err) {
+                    console.error('❌ Error updating cancelled calls in database:', err);
+                } else {
+                    console.log(`💾 Updated ${this.changes} cancelled calls in database`);
+                }
+            });
+        }
+        
+        console.log(`🛑 Cancelled ${cancelledTimers} scheduled calls and ${cancelledPending} pending calls`);
+        
+        res.json({
+            success: true,
+            message: `Cancelled ${cancelledTimers + cancelledPending} upcoming calls. Active calls will complete.`,
+            cancelledTimers: cancelledTimers,
+            cancelledPending: cancelledPending,
+            activeCalls: CALL_SYSTEM.activeCalls
+        });
+        
+    } catch (error) {
+        console.error('Error cancelling calls:', error);
+        res.status(500).json({ error: 'Error cancelling calls' });
+    }
 });
 
 // Start server
@@ -384,7 +595,7 @@ app.listen(PORT, () => {
 // Middleware to parse JSON bodies
 app.use(express.json());
 
-// VAPI webhook endpoint for call outcomes
+// UPDATED: VAPI webhook endpoint with database persistence
 app.post('/webhook/call-ended', (req, res) => {
     try {
         const callData = req.body;
@@ -400,44 +611,33 @@ app.post('/webhook/call-ended', (req, res) => {
                 cost: callData.message.cost,
                 successEvaluation: callData.message.analysis?.successEvaluation === 'true' ? 'Pass' : 'Fail',
                 customerPhoneNumber: callData.message.call?.customer?.number,
-                structuredData: callData.message.analysis?.structuredData || null, // This is the correct path
+                structuredData: callData.message.analysis?.structuredData || null,
                 summary: callData.message.analysis?.summary || null,
                 timestamp: new Date().toISOString(),
                 actualCallTime: new Date().toLocaleTimeString()
             };
             
+            // Use CallOutcome from structured data if available, fallback to endedReason
+            outcome.callOutcome = outcome.structuredData?.CallOutcome || outcome.endedReason;
+            outcome.message = `Call completed: ${outcome.callOutcome} (${outcome.successEvaluation})`;
+            
             console.log('🎯 CallOutcome from structured data:', outcome.structuredData?.CallOutcome || 'Not available');
             console.log('📊 Processed end-of-call outcome:', outcome);
             console.log('🏗️ Structured data received:', JSON.stringify(outcome.structuredData, null, 2));
             
-            // Find and update the corresponding call in our system
-            const callIndex = CALL_SYSTEM.callResults.findIndex(result => 
-                result && result.callId === outcome.callId
-            );
-            
-            if (callIndex !== -1 && CALL_SYSTEM.callResults[callIndex]) {
-                // Update the call result with outcome data
-            CALL_SYSTEM.callResults[callIndex] = {
-                ...CALL_SYSTEM.callResults[callIndex],
-                endedReason: outcome.endedReason,
-                duration: outcome.duration,
-                cost: outcome.cost,
-                successEvaluation: outcome.successEvaluation,
-                structuredData: outcome.structuredData,
-                summary: outcome.summary,
-                actualCallTime: outcome.actualCallTime,
-                status: 'completed',
-                success: outcome.successEvaluation === 'Pass',
-                outcomeReceived: true,
-                // Use CallOutcome from structured data if available, fallback to endedReason
-                callOutcome: outcome.structuredData?.CallOutcome || outcome.endedReason,
-                message: `Call completed: ${outcome.structuredData?.CallOutcome || outcome.endedReason} (${outcome.successEvaluation})`
-            };
-                
-                console.log(`✅ Updated call result for index ${callIndex} with structured outcome data`);
+            // NEW: Update database with outcome
+            if (outcome.callId) {
+                DB_HELPERS.updateCallOutcome(outcome.callId, outcome, (err) => {
+                    if (err) {
+                        console.error('❌ Error updating call outcome in database:', err);
+                    } else {
+                        console.log(`💾 Updated call outcome in database for call ID: ${outcome.callId}`);
+                    }
+                });
             } else {
-                console.log('⚠️ Could not find matching call for outcome', outcome.callId);
+                console.log('⚠️ No call ID found in outcome data');
             }
+            
         } else {
             console.log(`📝 Received ${callData.message?.type} webhook - no action needed`);
         }
@@ -449,4 +649,17 @@ app.post('/webhook/call-ended', (req, res) => {
         console.error('❌ Error processing webhook:', error);
         res.status(500).json({ error: 'Error processing webhook' });
     }
+});
+
+// NEW: Graceful shutdown to close database
+process.on('SIGINT', () => {
+    console.log('\n🛑 Shutting down server...');
+    db.close((err) => {
+        if (err) {
+            console.error('❌ Error closing database:', err.message);
+        } else {
+            console.log('📀 Database connection closed.');
+        }
+        process.exit(0);
+    });
 });
