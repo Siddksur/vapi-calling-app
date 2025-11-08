@@ -248,23 +248,41 @@ async function makeVAPICall(contact, index) {
             }
         });
 
-        // NEW: Update database with call ID
-        const updateData = {
-            callId: response.data.id,
-            status: 'calling',
-            message: `Call initiated for ${contact.name}`,
-            timestamp: new Date().toISOString()
-        };
+        // NEW: Update database with call ID - FIXED VERSION
+        const phoneNumber = formatPhoneNumber(contact.phone);
+        console.log(`🔧 Updating database: phone=${phoneNumber}, campaign=${CALL_SYSTEM.currentCampaignId}, index=${index}, callId=${response.data.id}`);
         
-        // Update in database
-        db.run(`
-            UPDATE calls SET 
-                call_id = ?, status = ?, message = ?, timestamp = ?
-            WHERE contact_phone = ? AND campaign_id = ? AND index_position = ?
-        `, [
-            response.data.id, 'calling', updateData.message, updateData.timestamp,
-            formatPhoneNumber(contact.phone), CALL_SYSTEM.currentCampaignId, index
-        ]);
+        // Update in database with better error handling
+        await new Promise((resolve, reject) => {
+            db.run(`
+                UPDATE calls SET 
+                    call_id = ?, status = ?, message = ?, timestamp = ?
+                WHERE contact_phone = ? AND campaign_id = ? AND index_position = ?
+            `, [
+                response.data.id, 'calling', `Call initiated for ${contact.name}`, new Date().toISOString(),
+                phoneNumber, CALL_SYSTEM.currentCampaignId, index
+            ], function(err) {
+                if (err) {
+                    console.error('❌ Error updating call with call_id:', err);
+                    reject(err);
+                } else {
+                    console.log(`💾 Updated ${this.changes} database records with call_id for ${contact.name}`);
+                    if (this.changes === 0) {
+                        console.log(`⚠️ No database records updated for ${contact.name}`);
+                        console.log(`   Expected: phone=${phoneNumber}, campaign=${CALL_SYSTEM.currentCampaignId}, index=${index}`);
+                        
+                        // Let's see what's actually in the database
+                        db.all(`SELECT contact_phone, campaign_id, index_position FROM calls WHERE campaign_id = ?`, 
+                               [CALL_SYSTEM.currentCampaignId], (err, rows) => {
+                            if (!err) {
+                                console.log('   Database contents:', rows);
+                            }
+                        });
+                    }
+                    resolve();
+                }
+            });
+        });
 
         console.log(`[${index + 1}] ✅ VAPI call successful for ${contact.name}`);
         
@@ -272,22 +290,29 @@ async function makeVAPICall(contact, index) {
             success: true,
             contact: contact,
             callId: response.data.id,
-            message: updateData.message,
-            timestamp: updateData.timestamp,
+            message: `Call initiated for ${contact.name}`,
+            timestamp: new Date().toISOString(),
             index: index,
             status: 'calling'
         };
 
     } catch (error) {
-        // NEW: Update database with error
+        // Update database with error
+        const phoneNumber = formatPhoneNumber(contact.phone);
         db.run(`
             UPDATE calls SET 
                 status = ?, message = ?
             WHERE contact_phone = ? AND campaign_id = ? AND index_position = ?
         `, [
             'failed', `Failed to call ${contact.name}: ${error.message}`,
-            formatPhoneNumber(contact.phone), CALL_SYSTEM.currentCampaignId, index
-        ]);
+            phoneNumber, CALL_SYSTEM.currentCampaignId, index
+        ], function(updateErr) {
+            if (updateErr) {
+                console.error('❌ Error updating failed call in database:', updateErr);
+            } else {
+                console.log(`💾 Updated ${this.changes} failed call records for ${contact.name}`);
+            }
+        });
 
         console.error(`[${index + 1}] ❌ Error making VAPI call for ${contact.name}:`, error.message);
         
@@ -436,33 +461,53 @@ app.get('/health', (req, res) => {
 
 // UPDATED: Get current call status from database
 app.get('/status', (req, res) => {
-    DB_HELPERS.getCurrentCalls((err, calls) => {
-        if (err) {
-            return res.status(500).json({ error: 'Error fetching call data' });
-        }
-        
-        const totalCalls = calls.length;
-        const completedCalls = calls.filter(call => call.status === 'completed').length;
-        const successfulCalls = calls.filter(call => call.successEvaluation === 'Pass').length;
-        const failedCalls = calls.filter(call => call.successEvaluation === 'Fail').length;
-        const activeCalls = CALL_SYSTEM.activeCalls;
-        const pendingCalls = CALL_SYSTEM.pendingCalls.length;
-        const scheduledCalls = calls.filter(call => call.status === 'scheduled').length;
-        
-        res.json({
-            calls: calls,
-            summary: {
-                total: totalCalls,
-                completed: completedCalls,
-                successful: successfulCalls,
-                failed: failedCalls,
-                active: activeCalls,
-                pending: pendingCalls,
-                scheduled: scheduledCalls
-            },
-            timers: CALL_SYSTEM.timers.length
+    // If no current campaign, try to load the most recent one
+    if (!CALL_SYSTEM.currentCampaignId) {
+        db.get(`
+            SELECT campaign_id FROM calls 
+            ORDER BY timestamp DESC 
+            LIMIT 1
+        `, (err, row) => {
+            if (!err && row) {
+                CALL_SYSTEM.currentCampaignId = row.campaign_id;
+                console.log('🔄 Auto-loaded most recent campaign:', CALL_SYSTEM.currentCampaignId);
+            }
+            getCalls();
         });
-    });
+    } else {
+        getCalls();
+    }
+    
+    function getCalls() {
+        DB_HELPERS.getCurrentCalls((err, calls) => {
+            if (err) {
+                return res.status(500).json({ error: 'Error fetching call data' });
+            }
+            
+            const totalCalls = calls.length;
+            const completedCalls = calls.filter(call => call.status === 'completed').length;
+            const successfulCalls = calls.filter(call => call.successEvaluation === 'Pass').length;
+            const failedCalls = calls.filter(call => call.successEvaluation === 'Fail').length;
+            const activeCalls = CALL_SYSTEM.activeCalls;
+            const pendingCalls = CALL_SYSTEM.pendingCalls.length;
+            const scheduledCalls = calls.filter(call => call.status === 'scheduled').length;
+            
+            res.json({
+                calls: calls,
+                summary: {
+                    total: totalCalls,
+                    completed: completedCalls,
+                    successful: successfulCalls,
+                    failed: failedCalls,
+                    active: activeCalls,
+                    pending: pendingCalls,
+                    scheduled: scheduledCalls
+                },
+                timers: CALL_SYSTEM.timers.length,
+                campaignId: CALL_SYSTEM.currentCampaignId
+            });
+        });
+    }
 });
 
 // Handle CSV file upload and processing with time window scheduling
