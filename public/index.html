@@ -3,8 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VAPI Calling App</title>
+    <title>LeadCallr AI Calling App</title>
     <style>
+
+        .outcome-interested { color: #28a745; font-weight: bold; }
+        .outcome-voicemail { color: #ffc107; font-weight: bold; }
+        .outcome-listings { color: #17a2b8; font-weight: bold; }
+        .outcome-callback { color: #6f42c1; font-weight: bold; }
+        .outcome-not-interested { color: #dc3545; font-weight: bold; }
+        .outcome-other { color: #6c757d; font-weight: bold; }
+
         .filter-buttons {
             display: flex;
             gap: 10px;
@@ -176,7 +184,7 @@
     </style>
 </head>
 <body>
-    <h1>VAPI Calling App</h1>
+    <h1>LeadCallr AI Calling App</h1>
     <p>Upload a CSV file with contacts (Name, Phone, Address) and set your calling schedule.</p>
     
     <div class="time-settings">
@@ -394,7 +402,8 @@
                     <th>Phone</th>
                     <th>Status</th>
                     <th>Scheduled Time</th>
-                    <th>Message</th>
+                    <th>Outcome</th>
+                    <th>Details</th>
                 </tr>
             </thead>
             <tbody id="callsTableBody">
@@ -459,40 +468,18 @@ tableBody.innerHTML = '';
 data.calls.forEach((call, index) => {
     if (call) {
         const row = document.createElement('tr');
-
-        // Apply current filter
-const rows = tableBody.querySelectorAll('tr');
-rows.forEach(row => {
-    const statusBadge = row.querySelector('.status-badge');
-    if (statusBadge) {
-        const isVisible = currentFilter === 'all' || 
-                         (currentFilter === 'completed' && statusBadge.textContent.includes('✅')) ||
-                         (currentFilter === 'failed' && statusBadge.textContent.includes('❌')) ||
-                         (currentFilter === 'scheduled' && statusBadge.textContent.includes('⏰'));
         
-        row.style.display = isVisible ? '' : 'none';
-    }
-});
-        
-        // Determine status display
+        // Determine status display - only Completed or Scheduled
         let statusClass, statusText;
         if (call.status === 'completed') {
-            if (call.success) {
-                statusClass = 'status-completed';
-                statusText = '✅ Completed';
-            } else {
-                statusClass = 'status-failed';
-                statusText = '❌ Failed';
-            }
-        } else if (call.status === 'scheduled') {
+            statusClass = 'status-completed';
+            statusText = '✅ Completed';
+        } else {
             statusClass = 'status-scheduled';
             statusText = '⏰ Scheduled';
-        } else {
-            statusClass = 'status-calling';
-            statusText = '📞 Calling';
         }
         
-        // Format scheduled time
+        // Keep scheduled time visible - show when they were supposed to be called
         let scheduledTime = '-';
         if (call.scheduledTimeLocal) {
             scheduledTime = call.scheduledTimeLocal;
@@ -506,17 +493,49 @@ rows.forEach(row => {
             }
         }
         
-        // Build detailed message with outcome data
-        let detailedMessage = call.message || '-';
-        if (call.status === 'completed' && call.outcomeReceived) {
-            let outcomeDetails = [];
-            if (call.endedReason) outcomeDetails.push(`Reason: ${call.endedReason}`);
-            if (call.duration) outcomeDetails.push(`Duration: ${Math.round(call.duration)}s`);
-            if (call.cost) outcomeDetails.push(`Cost: $${call.cost.toFixed(4)}`);
-            if (call.successEvaluation) outcomeDetails.push(`Result: ${call.successEvaluation}`);
+        // Format structured data outcome
+        let outcomeDisplay = '-';
+        if (call.structuredData) {
+            const structured = call.structuredData;
             
-            if (outcomeDetails.length > 0) {
-                detailedMessage = outcomeDetails.join(' | ');
+            // Display the main outcome
+            if (structured.CallOutcome) {
+                let outcomeClass = '';
+                switch(structured.CallOutcome) {
+                    case 'interested': outcomeClass = 'outcome-interested'; break;
+                    case 'voicemail': outcomeClass = 'outcome-voicemail'; break;
+                    case 'send_listings': outcomeClass = 'outcome-listings'; break;
+                    case 'callback': outcomeClass = 'outcome-callback'; break;
+                    case 'not_interested': outcomeClass = 'outcome-not-interested'; break;
+                    default: outcomeClass = 'outcome-other';
+                }
+                
+                outcomeDisplay = `<span class="${outcomeClass}"><strong>${structured.CallOutcome.toUpperCase()}</strong></span>`;
+                
+                // Add additional structured data details
+                const details = [];
+                if (structured.Answered) details.push(`Answered: ${structured.Answered}`);
+                if (structured.Date) details.push(`Date: ${structured.Date}`);
+                if (structured.Email) details.push(`Email: ${structured.Email}`);
+                
+                if (details.length > 0) {
+                    outcomeDisplay += `<br><small>${details.join(' | ')}</small>`;
+                }
+            }
+        } else if (call.status === 'completed') {
+            outcomeDisplay = call.endedReason || 'No outcome data';
+        }
+        
+        // Build basic details
+        let detailsDisplay = call.message || '-';
+        if (call.status === 'completed' && call.outcomeReceived) {
+            let details = [];
+            if (call.endedReason) details.push(`Reason: ${call.endedReason}`);
+            if (call.duration) details.push(`Duration: ${Math.round(call.duration)}s`);
+            if (call.cost) details.push(`Cost: $${call.cost.toFixed(4)}`);
+            
+            if (details.length > 0) {
+                detailsDisplay = details.join(' | ');
             }
         }
         
@@ -526,10 +545,25 @@ rows.forEach(row => {
             <td>${call.contact.phone}</td>
             <td><span class="status-badge ${statusClass}">${statusText}</span></td>
             <td>${scheduledTime}</td>
-            <td>${detailedMessage}</td>
+            <td>${outcomeDisplay}</td>
+            <td>${detailsDisplay}</td>
         `;
         
         tableBody.appendChild(row);
+    }
+});
+
+// Apply current filter (MOVED OUTSIDE THE LOOP)
+const rows = tableBody.querySelectorAll('tr');
+rows.forEach(row => {
+    const statusBadge = row.querySelector('.status-badge');
+    if (statusBadge) {
+        const isVisible = currentFilter === 'all' || 
+                         (currentFilter === 'completed' && statusBadge.textContent.includes('✅')) ||
+                         (currentFilter === 'failed' && statusBadge.textContent.includes('❌')) ||
+                         (currentFilter === 'scheduled' && statusBadge.textContent.includes('⏰'));
+        
+        row.style.display = isVisible ? '' : 'none';
     }
 });
                 
