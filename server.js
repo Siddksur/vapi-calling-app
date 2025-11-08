@@ -708,3 +708,38 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
+// Update contact information
+app.post('/update-contact', express.json(), (req, res) => {
+    const { index, field, value } = req.body;
+    
+    if (!CALL_SYSTEM.currentCampaignId) {
+        return res.status(400).json({ error: 'No active campaign' });
+    }
+    
+    const columnMap = {
+        'name': 'contact_name',
+        'phone': 'contact_phone'
+    };
+    
+    const column = columnMap[field];
+    if (!column) {
+        return res.status(400).json({ error: 'Invalid field' });
+    }
+    
+    // Format phone number if editing phone
+    const finalValue = field === 'phone' ? formatPhoneNumber(value) : value;
+    
+    db.run(`
+        UPDATE calls SET ${column} = ?
+        WHERE campaign_id = ? AND index_position = ?
+    `, [finalValue, CALL_SYSTEM.currentCampaignId, index], function(err) {
+        if (err) {
+            console.error('Error updating contact:', err);
+            res.status(500).json({ error: 'Database update failed' });
+        } else {
+            console.log(`✏️ Updated ${field} for contact at index ${index}: ${finalValue}`);
+            res.json({ success: true, updated: this.changes });
+        }
+    });
+});
