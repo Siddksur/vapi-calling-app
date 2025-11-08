@@ -29,72 +29,46 @@ const db = new sqlite3.Database(dbPath, (err) => {
 
 // NEW: Initialize database tables
 function initializeDatabase() {
-    // Create calls table if it doesn't exist
-    db.run(`
-        CREATE TABLE IF NOT EXISTS calls (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contact_name TEXT NOT NULL,
-            contact_phone TEXT NOT NULL,
-            contact_address TEXT,
-            call_id TEXT,
-            status TEXT DEFAULT 'scheduled',
-            scheduled_time TEXT,
-            scheduled_time_local TEXT,
-            ended_reason TEXT,
-            call_outcome TEXT,
-            duration REAL,
-            cost REAL,
-            success_evaluation TEXT,
-            structured_data TEXT,
-            summary TEXT,
-            recording_url TEXT,
-            actual_call_time TEXT,
-            message TEXT,
-            timestamp TEXT,
-            campaign_id TEXT,
-            index_position INTEGER,
-            outcome_received INTEGER DEFAULT 0
-        )
-    `, (err) => {
-        if (err) {
-            console.error('❌ Error creating calls table:', err.message);
-        } else {
-            console.log('✅ Database table initialized');
-            
-            // Try to add recording_url column to existing databases
-            db.run(`ALTER TABLE calls ADD COLUMN recording_url TEXT`, (alterErr) => {
-                if (alterErr && !alterErr.message.includes('duplicate column')) {
-                    console.log('⚠️ Could not add recording_url column (table might already have it):', alterErr.message);
-                } else if (!alterErr) {
-                    console.log('✅ Added recording_url column to existing database');
-                }
-            });
-        }
+    // TEMPORARY: Reset database with correct schema
+    db.run(`DROP TABLE IF EXISTS calls`, (dropErr) => {
+        if (!dropErr) console.log('🗑️ Reset database table');
+        
+        // Create calls table with recording_url column included
+        db.run(`
+            CREATE TABLE IF NOT EXISTS calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                contact_name TEXT NOT NULL,
+                contact_phone TEXT NOT NULL,
+                contact_address TEXT,
+                call_id TEXT,
+                status TEXT DEFAULT 'scheduled',
+                scheduled_time TEXT,
+                scheduled_time_local TEXT,
+                ended_reason TEXT,
+                call_outcome TEXT,
+                duration REAL,
+                cost REAL,
+                success_evaluation TEXT,
+                structured_data TEXT,
+                summary TEXT,
+                recording_url TEXT,
+                actual_call_time TEXT,
+                message TEXT,
+                timestamp TEXT,
+                campaign_id TEXT,
+                index_position INTEGER,
+                outcome_received INTEGER DEFAULT 0
+            )
+        `, (err) => {
+            if (err) {
+                console.error('❌ Error creating calls table:', err.message);
+            } else {
+                console.log('✅ Database table initialized with recording_url column');
+            }
+        });
     });
 }
 
-        function initializeDatabase() {
-            // ... existing code ...
-            db.run(`CREATE TABLE IF NOT EXISTS calls ...`, (err) => {
-                if (err) {
-                    console.error('❌ Error creating calls table:', err.message);
-                } else {
-                    console.log('✅ Database table initialized');
-                    updateDatabaseSchema(); // ← ADD THIS LINE
-                }
-            });
-        }
-
-// NEW: Add recording_url column to existing database if it doesn't exist
-        function updateDatabaseSchema() {
-            db.run(`ALTER TABLE calls ADD COLUMN recording_url TEXT`, (err) => {
-                if (err && !err.message.includes('duplicate column')) {
-                    console.error('❌ Error adding recording_url column:', err.message);
-                } else if (!err) {
-                    console.log('✅ Added recording_url column to database');
-                }
-            });
-        }
 
 // VAPI Configuration using environment variables
 const VAPI_CONFIG = {
