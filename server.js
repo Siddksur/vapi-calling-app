@@ -23,14 +23,17 @@ const pool = new Pool({
     ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-// Test connection and initialize database
+// Test connection, initialize database, and rehydrate scheduled calls
 pool.connect()
-    .then(client => {
+    .then(async client => {
         console.log('✅ Connected to PostgreSQL database');
         client.release();
-        initializeDatabase().catch(err => {
-            console.error('❌ Error initializing database:', err);
-        });
+        try {
+            await initializeDatabase();
+            await rehydrateScheduledCalls();
+        } catch (err) {
+            console.error('❌ Error during startup tasks:', err);
+        }
     })
     .catch(err => {
         console.error('❌ Error acquiring database client:', err.message);
@@ -454,7 +457,7 @@ function formatPhoneNumber(phone) {
 }
 
 // UPDATED: Function to make VAPI call with database integration
-async function makeVAPICall(contact, index) {
+async function makeVAPICall(contact, index, campaignId = CALL_SYSTEM.currentCampaignId) {
     try {
         CALL_SYSTEM.activeCalls++;
         
@@ -484,7 +487,8 @@ async function makeVAPICall(contact, index) {
 
         // NEW: Update database with call ID - FIXED VERSION
         const phoneNumber = formatPhoneNumber(contact.phone);
-        console.log(`🔧 Updating database: phone=${phoneNumber}, campaign=${CALL_SYSTEM.currentCampaignId}, index=${index}, callId=${response.data.id}`);
+        const effectiveCampaignId = campaignId || CALL_SYSTEM.currentCampaignId;
+        console.log(`🔧 Updating database: phone=${phoneNumber}, campaign=${effectiveCampaignId}, index=${index}, callId=${response.data.id}`);
         
         // Update in database with better error handling
         try {
@@ -494,19 +498,19 @@ async function makeVAPICall(contact, index) {
                 WHERE contact_phone = $5 AND campaign_id = $6 AND index_position = $7
             `, [
                 response.data.id, 'calling', `Call initiated for ${contact.name}`, new Date().toISOString(),
-                phoneNumber, CALL_SYSTEM.currentCampaignId, index
+                phoneNumber, effectiveCampaignId, index
             ]);
             
             console.log(`💾 Updated ${updateResult.rowCount} database records with call_id for ${contact.name}`);
             if (updateResult.rowCount === 0) {
                 console.log(`⚠️ No database records updated for ${contact.name}`);
-                console.log(`   Expected: phone=${phoneNumber}, campaign=${CALL_SYSTEM.currentCampaignId}, index=${index}`);
+                console.log(`   Expected: phone=${phoneNumber}, campaign=${effectiveCampaignId}, index=${index}`);
                 
                 // Let's see what's actually in the database
                 const debugResult = await pool.query(`
                     SELECT contact_phone, campaign_id, index_position FROM calls 
                     WHERE campaign_id = $1
-                `, [CALL_SYSTEM.currentCampaignId]);
+                `, [effectiveCampaignId]);
                 console.log('   Database contents:', debugResult.rows);
             }
         } catch (err) {
@@ -536,7 +540,7 @@ async function makeVAPICall(contact, index) {
                 WHERE contact_phone = $3 AND campaign_id = $4 AND index_position = $5
             `, [
                 'failed', `Failed to call ${contact.name}: ${error.message}`,
-                phoneNumber, CALL_SYSTEM.currentCampaignId, index
+                phoneNumber, campaignId || CALL_SYSTEM.currentCampaignId, index
             ]);
             console.log(`💾 Updated ${updateResult.rowCount} failed call records for ${contact.name}`);
         } catch (updateErr) {
@@ -744,16 +748,16 @@ function scheduleVoicemailRetry(callId) {
 function processNextCall() {
     if (CALL_SYSTEM.activeCalls < CALL_SYSTEM.maxConcurrent && CALL_SYSTEM.pendingCalls.length > 0) {
         const nextCall = CALL_SYSTEM.pendingCalls.shift();
-        makeVAPICall(nextCall.contact, nextCall.index);
+        makeVAPICall(nextCall.contact, nextCall.index, nextCall.campaignId);
     }
 }
 
 // Function to queue call with concurrency control
-function queueCall(contact, index) {
+function queueCall(contact, index, campaignId = CALL_SYSTEM.currentCampaignId) {
     if (CALL_SYSTEM.activeCalls < CALL_SYSTEM.maxConcurrent) {
-        makeVAPICall(contact, index);
+        makeVAPICall(contact, index, campaignId);
     } else {
-        CALL_SYSTEM.pendingCalls.push({ contact, index });
+        CALL_SYSTEM.pendingCalls.push({ contact, index, campaignId });
         console.log(`[${index + 1}] ⏳ Queued call for ${contact.name} (Queue position: ${CALL_SYSTEM.pendingCalls.length})`);
     }
 }
@@ -809,6 +813,7 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     console.log(`   Interval: ${Math.round(intervalMs / 1000 / 60)} minutes between calls`);
     
     // Schedule each call and save to database
+    const activeCampaignId = CALL_SYSTEM.currentCampaignId;
     contacts.forEach((contact, index) => {
         const callTime = new Date(actualStartTime.getTime() + (intervalMs * index));
         const delayMs = callTime - easternTime;
@@ -823,7 +828,8 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
             scheduledTime: callTime.toISOString(),
             scheduledTimeLocal: callTime.toLocaleTimeString(),
             message: `Scheduled for ${callTime.toLocaleTimeString()}`,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            campaignId: activeCampaignId
         };
         
         DB_HELPERS.saveCall(callData, (err, dbId) => {
@@ -836,13 +842,13 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
         
         if (delayMs <= 0) {
             console.log(`[${index + 1}] 🚀 Calling ${contact.name} immediately`);
-            queueCall(contact, index);
+            queueCall(contact, index, activeCampaignId);
         } else {
             console.log(`[${index + 1}] ⏰ Scheduled ${contact.name} for ${callTime.toLocaleTimeString()} (in ${Math.round(delayMs/1000)}s)`);
             
             const timer = setTimeout(() => {
                 console.log(`[${index + 1}] 🔔 Timer fired! Time to call ${contact.name}`);
-                queueCall(contact, index);
+                queueCall(contact, index, activeCampaignId);
             }, delayMs);
             
             CALL_SYSTEM.timers.push(timer);
@@ -850,6 +856,62 @@ function scheduleCallsAcrossTimeWindow(contacts, startTime, endTime) {
     });
     
     console.log(`🐛 DEBUG: Set ${CALL_SYSTEM.timers.length} timers`);
+}
+
+// NEW: Rehydrate scheduled calls after restart
+async function rehydrateScheduledCalls() {
+    try {
+        const result = await pool.query(`
+            SELECT * FROM calls
+            WHERE status = 'scheduled'
+            ORDER BY scheduled_time
+        `);
+        
+        if (result.rows.length === 0) {
+            console.log('♻️ No scheduled calls to rehydrate');
+            return;
+        }
+        
+        console.log(`♻️ Rehydrating ${result.rows.length} scheduled call(s)`);
+        
+        const now = new Date();
+        // Remember most recent campaign with scheduled calls
+        const latestRow = result.rows[result.rows.length - 1];
+        if (latestRow && latestRow.campaign_id) {
+            CALL_SYSTEM.currentCampaignId = latestRow.campaign_id;
+        }
+        
+        result.rows.forEach(row => {
+            const campaignId = row.campaign_id;
+            const contact = {
+                name: row.contact_name,
+                phone: row.contact_phone,
+                address: row.contact_address
+            };
+            
+            let scheduledTime = null;
+            if (row.scheduled_time) {
+                scheduledTime = new Date(row.scheduled_time);
+            }
+            const delayMs = scheduledTime ? scheduledTime.getTime() - now.getTime() : 0;
+            const readableTime = scheduledTime ? scheduledTime.toLocaleString() : 'immediate';
+            const callIndex = row.index_position != null ? row.index_position : 0;
+            
+            if (delayMs <= 0) {
+                console.log(`♻️ [${callIndex + 1}] Scheduling immediate call for ${contact.name} (campaign ${campaignId})`);
+                queueCall(contact, callIndex, campaignId);
+            } else {
+                console.log(`♻️ [${callIndex + 1}] Restoring timer for ${contact.name} at ${readableTime} (in ${Math.round(delayMs/1000)}s)`);
+                const timer = setTimeout(() => {
+                    console.log(`♻️ Timer fired for ${contact.name} (campaign ${campaignId})`);
+                    queueCall(contact, callIndex, campaignId);
+                }, delayMs);
+                CALL_SYSTEM.timers.push(timer);
+            }
+        });
+    } catch (err) {
+        console.error('❌ Error rehydrating scheduled calls:', err);
+    }
 }
 
 // Serve static files from public directory
