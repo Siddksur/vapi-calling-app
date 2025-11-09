@@ -1032,6 +1032,56 @@ app.get('/status', (req, res) => {
     }
 });
 
+// NEW: Campaign analytics endpoint
+app.get('/analytics', async (req, res) => {
+    try {
+        const campaignId = req.query.campaignId || CALL_SYSTEM.currentCampaignId;
+        if (!campaignId) {
+            return res.status(400).json({ error: 'No campaign selected' });
+        }
+
+        const totalsResult = await pool.query(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN call_id IS NOT NULL THEN 1 ELSE 0 END),0)::int AS total,
+                COALESCE(SUM(CASE WHEN call_id IS NOT NULL AND COALESCE(structured_data->>'Answered','') = 'yes' THEN 1 ELSE 0 END),0)::int AS answered,
+                COALESCE(SUM(CASE WHEN call_id IS NOT NULL AND (COALESCE(structured_data->>'Answered','') = 'no' OR ended_reason = 'voicemail') THEN 1 ELSE 0 END),0)::int AS voicemail,
+                COALESCE(SUM(CASE WHEN call_id IS NOT NULL AND is_retry THEN 1 ELSE 0 END),0)::int AS retries
+            FROM calls
+            WHERE campaign_id = $1
+        `, [campaignId]);
+
+        const totalsRow = totalsResult.rows[0] || { total: 0, answered: 0, voicemail: 0, retries: 0 };
+
+        const outcomesResult = await pool.query(`
+            SELECT 
+                COALESCE(NULLIF(TRIM(LOWER(REGEXP_REPLACE(
+                    COALESCE(structured_data->>'CallOutcome', call_outcome, ended_reason, 'unknown'),
+                    '\\s+','_','g'
+                ))), ''), 'unknown') AS outcome,
+                COUNT(*)::int AS count
+            FROM calls
+            WHERE campaign_id = $1
+              AND call_id IS NOT NULL
+              AND COALESCE(structured_data->>'Answered','') = 'yes'
+            GROUP BY outcome
+            ORDER BY count DESC
+        `, [campaignId]);
+
+        res.json({
+            totals: {
+                total: totalsRow.total,
+                answered: totalsRow.answered,
+                voicemail: totalsRow.voicemail,
+                retries: totalsRow.retries
+            },
+            outcomes: outcomesResult.rows
+        });
+    } catch (error) {
+        console.error('❌ Error fetching analytics:', error);
+        res.status(500).json({ error: 'Error fetching analytics data' });
+    }
+});
+
 // Handle CSV file upload and processing with time window scheduling
 app.post('/upload', upload.single('csvFile'), async (req, res) => {
     if (!req.file) {

@@ -81,6 +81,121 @@
             border-color: #007cba;
             box-shadow: 0 2px 6px rgba(0, 124, 186, 0.24);
         }
+        .analytics-btn {
+            margin-left: 10px;
+            background: #17a2b8;
+            border: none;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+        }
+        .analytics-btn:hover {
+            background: #117a8b;
+        }
+        .analytics-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.35);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease;
+            z-index: 998;
+        }
+        .analytics-overlay.open {
+            opacity: 1;
+            visibility: visible;
+        }
+        .analytics-panel {
+            position: fixed;
+            top: 0;
+            right: -420px;
+            width: 420px;
+            height: 100%;
+            background: #ffffff;
+            box-shadow: -4px 0 12px rgba(0,0,0,0.15);
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.25s ease;
+        }
+        .analytics-panel.open {
+            right: 0;
+        }
+        .analytics-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 24px;
+            border-bottom: 1px solid #e5e9ef;
+        }
+        .analytics-header h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #0d4f7c;
+        }
+        .analytics-close {
+            background: transparent;
+            color: #7a8899;
+            font-size: 22px;
+            border: none;
+            cursor: pointer;
+        }
+        .analytics-close:hover {
+            color: #2c3e50;
+        }
+        .analytics-content {
+            padding: 18px 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .analytics-summary {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0,1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .analytics-card {
+            background: #f5f8fb;
+            border: 1px solid #dde6f2;
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+        .analytics-card h4 {
+            margin: 0 0 4px 0;
+            font-size: 13px;
+            text-transform: uppercase;
+            color: #6c7a8e;
+            letter-spacing: 0.5px;
+        }
+        .analytics-card .value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #0d4f7c;
+        }
+        .analytics-card .sub {
+            font-size: 12px;
+            color: #7a8899;
+        }
+        .analytics-chart {
+            margin-bottom: 28px;
+        }
+        .analytics-empty {
+            text-align: center;
+            padding: 40px 10px;
+            color: #6c7a8e;
+            background: #f8fbff;
+            border: 1px solid #dbe7f5;
+            border-radius: 10px;
+        }
         body {
             font-family: Arial, sans-serif;
             max-width: 1200px;
@@ -445,11 +560,17 @@
             <div class="campaign-info" id="campaignInfo"></div>
         </div>
 
-        <div class="filter-buttons status-filters" style="margin-bottom: 10px;">
-            <button type="button" onclick="filterByStatus('all')" class="filter-btn status-filter-btn active" id="status-filter-all">All Calls</button>
-            <button type="button" onclick="filterByStatus('completed')" class="filter-btn status-filter-btn" id="status-filter-completed">Completed</button>
-            <button type="button" onclick="filterByStatus('failed')" class="filter-btn status-filter-btn" id="status-filter-failed">Failed</button>
-            <button type="button" onclick="filterByStatus('scheduled')" class="filter-btn status-filter-btn" id="status-filter-scheduled">Scheduled</button>
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap;">
+            <div class="filter-buttons status-filters">
+                <button type="button" onclick="filterByStatus('all')" class="filter-btn status-filter-btn active" id="status-filter-all">All Calls</button>
+                <button type="button" onclick="filterByStatus('completed')" class="filter-btn status-filter-btn" id="status-filter-completed">Completed</button>
+                <button type="button" onclick="filterByStatus('failed')" class="filter-btn status-filter-btn" id="status-filter-failed">Failed</button>
+                <button type="button" onclick="filterByStatus('scheduled')" class="filter-btn status-filter-btn" id="status-filter-scheduled">Scheduled</button>
+            </div>
+            <button type="button" class="analytics-btn" onclick="openAnalyticsPanel()">
+                <span>📊</span>
+                <span>Analytics</span>
+            </button>
         </div>
 
         <div class="filter-buttons outcome-filters" style="margin-bottom: 15px;">
@@ -505,12 +626,66 @@
         </table>
     </div>
 
+    <!-- Analytics Panel -->
+    <div id="analyticsOverlay" class="analytics-overlay" onclick="closeAnalyticsPanel()"></div>
+    <div id="analyticsPanel" class="analytics-panel" onclick="event.stopPropagation();">
+        <div class="analytics-header">
+            <h3>Campaign Analytics</h3>
+            <button class="analytics-close" onclick="closeAnalyticsPanel()">×</button>
+        </div>
+        <div class="analytics-content">
+            <div id="analyticsLoading" style="display:none; text-align:center; padding:30px;">Loading analytics...</div>
+            <div id="analyticsEmpty" class="analytics-empty" style="display:none;">
+                No completed calls yet. Analytics will appear once calls are processed.
+            </div>
+            <div id="analyticsBody" style="display:none;">
+                <div class="analytics-summary">
+                    <div class="analytics-card">
+                        <h4>Total calls</h4>
+                        <div class="value" id="analyticsTotal">0</div>
+                        <div class="sub" id="analyticsTotalSub">All calls placed</div>
+                    </div>
+                    <div class="analytics-card">
+                        <h4>Answered</h4>
+                        <div class="value" id="analyticsAnswered">0</div>
+                        <div class="sub" id="analyticsAnsweredSub">0%</div>
+                    </div>
+                    <div class="analytics-card">
+                        <h4>Voicemail</h4>
+                        <div class="value" id="analyticsVoicemail">0</div>
+                        <div class="sub" id="analyticsVoicemailSub">0%</div>
+                    </div>
+                    <div class="analytics-card">
+                        <h4>Retries</h4>
+                        <div class="value" id="analyticsRetries">0</div>
+                        <div class="sub" id="analyticsRetriesSub">Voicemail follow-ups</div>
+                    </div>
+                </div>
+
+                <div class="analytics-chart">
+                    <h4 style="margin-bottom:10px; color:#0d4f7c;">Answered vs Voicemail</h4>
+                    <canvas id="analyticsAnswerChart" height="180"></canvas>
+                </div>
+
+                <div class="analytics-chart">
+                    <h4 style="margin-bottom:10px; color:#0d4f7c;">Outcome Distribution (Answered Calls)</h4>
+                    <canvas id="analyticsOutcomeChart" height="200"></canvas>
+                </div>
+
+                <div id="analyticsOutcomeTable"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         let statusUpdateInterval = null;
         let selectedCampaignId = null; // Track currently selected campaign
         let allCampaigns = []; // Store all campaigns
         let currentStatusFilter = 'all';
         let currentOutcomeFilter = 'all';
+        let analyticsAnswerChart = null;
+        let analyticsOutcomeChart = null;
         
         // Check for existing campaigns on page load
         window.addEventListener('load', function() {
@@ -1171,6 +1346,169 @@
                 
                 row.style.display = statusMatches && outcomeMatches ? '' : 'none';
             });
+        }
+
+        async function openAnalyticsPanel() {
+            const overlay = document.getElementById('analyticsOverlay');
+            const panel = document.getElementById('analyticsPanel');
+            const loading = document.getElementById('analyticsLoading');
+            const emptyState = document.getElementById('analyticsEmpty');
+            const body = document.getElementById('analyticsBody');
+
+            overlay.classList.add('open');
+            panel.classList.add('open');
+
+            loading.style.display = 'block';
+            emptyState.style.display = 'none';
+            body.style.display = 'none';
+
+            const campaignId = selectedCampaignId;
+            if (!campaignId) {
+                loading.style.display = 'none';
+                emptyState.style.display = 'block';
+                emptyState.textContent = 'Select a campaign to view analytics.';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/analytics?campaignId=${encodeURIComponent(campaignId)}`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch analytics');
+                }
+                const data = await response.json();
+
+                loading.style.display = 'none';
+
+                if (!data || data.totals.total === 0) {
+                    emptyState.style.display = 'block';
+                    emptyState.textContent = 'No calls have been completed for this campaign yet.';
+                    return;
+                }
+
+                emptyState.style.display = 'none';
+                body.style.display = 'block';
+
+                populateAnalytics(data);
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+                loading.style.display = 'none';
+                emptyState.style.display = 'block';
+                emptyState.textContent = 'Unable to load analytics right now. Please try again.';
+            }
+        }
+
+        function closeAnalyticsPanel() {
+            document.getElementById('analyticsOverlay').classList.remove('open');
+            document.getElementById('analyticsPanel').classList.remove('open');
+        }
+
+        function populateAnalytics(data) {
+            const totals = data.totals;
+            const answeredPct = totals.total ? Math.round((totals.answered / totals.total) * 100) : 0;
+            const voicemailPct = totals.total ? Math.round((totals.voicemail / totals.total) * 100) : 0;
+
+            document.getElementById('analyticsTotal').textContent = totals.total;
+            document.getElementById('analyticsAnswered').textContent = totals.answered;
+            document.getElementById('analyticsVoicemail').textContent = totals.voicemail;
+            document.getElementById('analyticsRetries').textContent = totals.retries;
+
+            document.getElementById('analyticsAnsweredSub').textContent = `${answeredPct}% of total`;
+            document.getElementById('analyticsVoicemailSub').textContent = `${voicemailPct}% of total`;
+            document.getElementById('analyticsTotalSub').textContent = `Calls placed in this campaign`;
+            document.getElementById('analyticsRetriesSub').textContent = totals.retries > 0 ? `${totals.retries} voicemail follow-ups` : 'No retries needed';
+
+            renderAnswerChart(totals);
+            renderOutcomeChart(data.outcomes);
+            renderOutcomeTable(data.outcomes, totals.answered);
+        }
+
+        function renderAnswerChart(totals) {
+            const ctx = document.getElementById('analyticsAnswerChart').getContext('2d');
+            if (analyticsAnswerChart) {
+                analyticsAnswerChart.destroy();
+            }
+            analyticsAnswerChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Answered', 'Voicemail/Unanswered'],
+                    datasets: [{
+                        data: [totals.answered, totals.voicemail],
+                        backgroundColor: ['#28a745', '#ffc107'],
+                        borderColor: ['#28a745', '#ffc107'],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderOutcomeChart(outcomes) {
+            const ctx = document.getElementById('analyticsOutcomeChart').getContext('2d');
+            if (analyticsOutcomeChart) {
+                analyticsOutcomeChart.destroy();
+            }
+            const labels = outcomes.map(o => formatOutcomeLabel(o.outcome));
+            const counts = outcomes.map(o => o.count);
+            const colors = ['#007cba', '#28a745', '#ffc107', '#17a2b8', '#6f42c1', '#dc3545', '#6c757d'];
+
+            analyticsOutcomeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Calls',
+                        data: counts,
+                        backgroundColor: labels.map((_, idx) => colors[idx % colors.length])
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        function renderOutcomeTable(outcomes, totalAnswered) {
+            const container = document.getElementById('analyticsOutcomeTable');
+            if (!outcomes || outcomes.length === 0 || totalAnswered === 0) {
+                container.innerHTML = '<div class="analytics-empty">No answered calls yet.</div>';
+                return;
+            }
+            let html = `
+                <table style="width:100%; border-collapse: collapse; margin-top: 10px; font-size: 13px;">
+                    <thead>
+                        <tr style="background:#f0f4f8;">
+                            <th style="text-align:left; padding:8px; border:1px solid #dbe1ea;">Outcome</th>
+                            <th style="text-align:right; padding:8px; border:1px solid #dbe1ea;">Count</th>
+                            <th style="text-align:right; padding:8px; border:1px solid #dbe1ea;">% of answered</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            outcomes.forEach(o => {
+                const pct = totalAnswered ? ((o.count / totalAnswered) * 100).toFixed(1) : '0.0';
+                html += `
+                    <tr>
+                        <td style="padding:8px; border:1px solid #eef2f7;">${formatOutcomeLabel(o.outcome)}</td>
+                        <td style="padding:8px; border:1px solid #eef2f7; text-align:right;">${o.count}</td>
+                        <td style="padding:8px; border:1px solid #eef2f7; text-align:right;">${pct}%</td>
+                    </tr>
+                `;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
         }
 
         // Toggle summary display by ID (supports both index and callId)
