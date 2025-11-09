@@ -33,7 +33,7 @@ function initializeDatabase() {
     db.run(`DROP TABLE IF EXISTS calls`, (dropErr) => {
         if (!dropErr) console.log('🗑️ Reset database table');
         
-        // Create calls table with recording_url column included
+        // Create calls table with recording_url column and retry tracking columns
         db.run(`
             CREATE TABLE IF NOT EXISTS calls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,15 +57,42 @@ function initializeDatabase() {
                 timestamp TEXT,
                 campaign_id TEXT,
                 index_position INTEGER,
-                outcome_received INTEGER DEFAULT 0
+                outcome_received INTEGER DEFAULT 0,
+                is_retry INTEGER DEFAULT 0,
+                original_call_id TEXT,
+                retry_count INTEGER DEFAULT 0
             )
         `, (err) => {
             if (err) {
                 console.error('❌ Error creating calls table:', err.message);
             } else {
-                console.log('✅ Database table initialized with recording_url column');
+                console.log('✅ Database table initialized with recording_url and retry tracking columns');
+                // Add new columns to existing table if they don't exist (for migration)
+                addRetryColumnsIfNotExist();
             }
         });
+    });
+}
+
+// NEW: Add retry columns to existing database (migration helper)
+function addRetryColumnsIfNotExist() {
+    // Check if columns exist and add them if they don't
+    db.run(`ALTER TABLE calls ADD COLUMN is_retry INTEGER DEFAULT 0`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {
+            console.error('❌ Error adding is_retry column:', err.message);
+        }
+    });
+    
+    db.run(`ALTER TABLE calls ADD COLUMN original_call_id TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {
+            console.error('❌ Error adding original_call_id column:', err.message);
+        }
+    });
+    
+    db.run(`ALTER TABLE calls ADD COLUMN retry_count INTEGER DEFAULT 0`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {
+            console.error('❌ Error adding retry_count column:', err.message);
+        }
     });
 }
 
@@ -85,19 +112,20 @@ const CALL_SYSTEM = {
     maxConcurrent: 10,
     pendingCalls: [],
     timers: [],
+    retryTimers: [], // NEW: Track retry timers
     currentCampaignId: null // NEW: Track current campaign
 };
 
 // NEW: Database helper functions
 const DB_HELPERS = {
-    // Save a call to database
+    // Save a call to database (supports retry calls)
     saveCall: (callData, callback) => {
         const stmt = db.prepare(`
             INSERT INTO calls (
                 contact_name, contact_phone, contact_address, call_id, status,
                 scheduled_time, scheduled_time_local, message, timestamp,
-                campaign_id, index_position
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                campaign_id, index_position, is_retry, original_call_id, retry_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
         stmt.run([
@@ -110,8 +138,11 @@ const DB_HELPERS = {
             callData.scheduledTimeLocal || null,
             callData.message || '',
             callData.timestamp,
-            CALL_SYSTEM.currentCampaignId,
-            callData.index
+            callData.campaignId || CALL_SYSTEM.currentCampaignId,
+            callData.index !== undefined ? callData.index : null,
+            callData.isRetry ? 1 : 0,
+            callData.originalCallId || null,
+            callData.retryCount || 0
         ], function(err) {
             if (callback) callback(err, this.lastID);
         });
@@ -185,7 +216,10 @@ const DB_HELPERS = {
                 timestamp: row.timestamp,
                 index: row.index_position,
                 outcomeReceived: row.outcome_received === 1,
-                success: row.success_evaluation === 'Pass'
+                success: row.success_evaluation === 'Pass',
+                isRetry: row.is_retry === 1,
+                originalCallId: row.original_call_id,
+                retryCount: row.retry_count || 0
             }));
             
             callback(null, calls);
@@ -229,7 +263,10 @@ const DB_HELPERS = {
                 timestamp: row.timestamp,
                 index: row.index_position,
                 outcomeReceived: row.outcome_received === 1,
-                success: row.success_evaluation === 'Pass'
+                success: row.success_evaluation === 'Pass',
+                isRetry: row.is_retry === 1,
+                originalCallId: row.original_call_id,
+                retryCount: row.retry_count || 0
             }));
             
             callback(null, calls);
@@ -267,6 +304,74 @@ const DB_HELPERS = {
             }));
             
             callback(null, campaigns);
+        });
+    },
+    
+    // Get call by callId (for retry functionality)
+    getCallByCallId: (callId, callback) => {
+        db.get(`
+            SELECT * FROM calls 
+            WHERE call_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        `, [callId], (err, row) => {
+            if (err) {
+                console.error('❌ Error fetching call by callId:', err);
+                callback(err, null);
+                return;
+            }
+            
+            if (!row) {
+                callback(null, null);
+                return;
+            }
+            
+            // Convert database row to our format
+            const call = {
+                id: row.id,
+                contact: {
+                    name: row.contact_name,
+                    phone: row.contact_phone,
+                    address: row.contact_address
+                },
+                callId: row.call_id,
+                status: row.status,
+                scheduledTime: row.scheduled_time,
+                scheduledTimeLocal: row.scheduled_time_local,
+                endedReason: row.ended_reason,
+                callOutcome: row.call_outcome,
+                duration: row.duration,
+                cost: row.cost,
+                successEvaluation: row.success_evaluation,
+                structuredData: row.structured_data ? JSON.parse(row.structured_data) : null,
+                summary: row.summary,
+                recordingUrl: row.recording_url,
+                actualCallTime: row.actual_call_time,
+                message: row.message,
+                timestamp: row.timestamp,
+                campaignId: row.campaign_id,
+                index: row.index_position,
+                outcomeReceived: row.outcome_received === 1,
+                success: row.success_evaluation === 'Pass',
+                isRetry: row.is_retry === 1,
+                originalCallId: row.original_call_id,
+                retryCount: row.retry_count || 0
+            };
+            
+            callback(null, call);
+        });
+    },
+    
+    // Update retry count for original call
+    updateRetryCount: (originalCallId, callback) => {
+        db.run(`
+            UPDATE calls SET retry_count = retry_count + 1
+            WHERE call_id = ?
+        `, [originalCallId], function(err) {
+            if (err) {
+                console.error('❌ Error updating retry count:', err);
+            }
+            if (callback) callback(err, this.changes);
         });
     },
     
@@ -416,6 +521,176 @@ async function makeVAPICall(contact, index) {
         CALL_SYSTEM.activeCalls--;
         processNextCall();
     }
+}
+
+// NEW: Function to make a retry call (for voicemail retries)
+async function makeRetryCall(contact, originalCallId, campaignId, retryCount) {
+    try {
+        CALL_SYSTEM.activeCalls++;
+        
+        const callData = {
+            assistantId: VAPI_CONFIG.assistantId,
+            phoneNumberId: VAPI_CONFIG.phoneNumberId,
+            customer: {
+                number: formatPhoneNumber(contact.phone)
+            },
+            assistantOverrides: {
+                variableValues: {
+                    name: contact.name,
+                    "customer.number": formatPhoneNumber(contact.phone),
+                    address: contact.address
+                }
+            }
+        };
+
+        console.log(`🔄 Making RETRY call for: ${contact.name} ${formatPhoneNumber(contact.phone)} (Original: ${originalCallId})`);
+
+        const response = await axios.post(`${VAPI_CONFIG.baseUrl}/call`, callData, {
+            headers: {
+                'Authorization': `Bearer ${VAPI_CONFIG.privateKey}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        // Create a new database record for the retry call
+        const retryCallData = {
+            contact: contact,
+            callId: response.data.id,
+            status: 'calling',
+            scheduledTime: new Date().toISOString(),
+            scheduledTimeLocal: new Date().toLocaleTimeString(),
+            message: `Retry call #${retryCount + 1} initiated for ${contact.name} (voicemail retry)`,
+            timestamp: new Date().toISOString(),
+            campaignId: campaignId,
+            index: null, // Retries don't have an index position
+            isRetry: true,
+            originalCallId: originalCallId,
+            retryCount: retryCount + 1
+        };
+
+        DB_HELPERS.saveCall(retryCallData, (err, dbId) => {
+            if (err) {
+                console.error('❌ Error saving retry call to database:', err);
+            } else {
+                console.log(`💾 Saved retry call to database with ID ${dbId}`);
+            }
+        });
+
+        // Update the retry count on the original call
+        DB_HELPERS.updateRetryCount(originalCallId, (err) => {
+            if (err) {
+                console.error('❌ Error updating retry count:', err);
+            } else {
+                console.log(`📊 Updated retry count for original call ${originalCallId}`);
+            }
+        });
+
+        console.log(`🔄 ✅ Retry call successful for ${contact.name}`);
+        
+        return {
+            success: true,
+            contact: contact,
+            callId: response.data.id,
+            message: `Retry call #${retryCount + 1} initiated for ${contact.name}`,
+            timestamp: new Date().toISOString(),
+            status: 'calling',
+            isRetry: true,
+            originalCallId: originalCallId
+        };
+
+    } catch (error) {
+        console.error(`🔄 ❌ Error making retry call for ${contact.name}:`, error.message);
+        
+        // Save failed retry call to database
+        const failedRetryCallData = {
+            contact: contact,
+            callId: null,
+            status: 'failed',
+            message: `Retry call failed: ${error.message}`,
+            timestamp: new Date().toISOString(),
+            campaignId: campaignId,
+            index: null,
+            isRetry: true,
+            originalCallId: originalCallId,
+            retryCount: retryCount + 1
+        };
+
+        DB_HELPERS.saveCall(failedRetryCallData, (err) => {
+            if (err) {
+                console.error('❌ Error saving failed retry call to database:', err);
+            }
+        });
+        
+        return {
+            success: false,
+            contact: contact,
+            error: error.message,
+            message: `Retry call failed: ${error.message}`,
+            timestamp: new Date().toISOString(),
+            status: 'failed',
+            isRetry: true,
+            originalCallId: originalCallId
+        };
+    } finally {
+        CALL_SYSTEM.activeCalls--;
+        processNextCall();
+    }
+}
+
+// NEW: Function to schedule voicemail retry
+function scheduleVoicemailRetry(callId) {
+    console.log(`🔄 Scheduling voicemail retry for call: ${callId}`);
+    
+    // Get the call information from database
+    DB_HELPERS.getCallByCallId(callId, (err, call) => {
+        if (err || !call) {
+            console.error('❌ Error getting call for retry:', err);
+            return;
+        }
+        
+        // Check if this call is already a retry (don't retry retries)
+        if (call.isRetry) {
+            console.log(`⏭️ Skipping retry - call ${callId} is already a retry call`);
+            return;
+        }
+        
+        // Check if we've already retried this call (retry count should be 0 for original call)
+        if (call.retryCount > 0) {
+            console.log(`⏭️ Skipping retry - call ${callId} has already been retried ${call.retryCount} time(s)`);
+            return;
+        }
+        
+        // Check if the outcome is actually voicemail
+        const isVoicemail = (
+            (call.callOutcome && call.callOutcome.toLowerCase() === 'voicemail') ||
+            (call.endedReason && call.endedReason.toLowerCase() === 'voicemail') ||
+            (call.structuredData && call.structuredData.CallOutcome && call.structuredData.CallOutcome.toLowerCase() === 'voicemail')
+        );
+        
+        if (!isVoicemail) {
+            console.log(`⏭️ Skipping retry - call ${callId} outcome is not voicemail: ${call.callOutcome || call.endedReason}`);
+            return;
+        }
+        
+        console.log(`✅ Scheduling retry for ${call.contact.name} (${call.contact.phone}) in 1 minute`);
+        
+        // Schedule the retry in 1 minute (60000 milliseconds)
+        const retryTimer = setTimeout(() => {
+            console.log(`🔄 Executing retry call for ${call.contact.name} (Original call: ${callId})`);
+            makeRetryCall(call.contact, callId, call.campaignId, call.retryCount);
+            
+            // Remove timer from tracking array
+            const index = CALL_SYSTEM.retryTimers.indexOf(retryTimer);
+            if (index > -1) {
+                CALL_SYSTEM.retryTimers.splice(index, 1);
+            }
+        }, 60000); // 1 minute = 60000 milliseconds
+        
+        // Track the retry timer
+        CALL_SYSTEM.retryTimers.push(retryTimer);
+        
+        console.log(`⏰ Retry scheduled for ${call.contact.name} - will execute in 60 seconds`);
+    });
 }
 
 // Function to process next call in queue
@@ -813,6 +1088,18 @@ app.post('/webhook/call-ended', (req, res) => {
                         console.error('❌ Error updating call outcome in database:', err);
                     } else {
                         console.log(`💾 Updated call outcome in database for call ID: ${outcome.callId}`);
+                        
+                        // NEW: Check if outcome is voicemail and schedule retry
+                        const isVoicemail = (
+                            (outcome.callOutcome && outcome.callOutcome.toLowerCase() === 'voicemail') ||
+                            (outcome.endedReason && outcome.endedReason.toLowerCase() === 'voicemail') ||
+                            (outcome.structuredData && outcome.structuredData.CallOutcome && outcome.structuredData.CallOutcome.toLowerCase() === 'voicemail')
+                        );
+                        
+                        if (isVoicemail) {
+                            console.log('📞 Voicemail detected - scheduling retry in 1 minute');
+                            scheduleVoicemailRetry(outcome.callId);
+                        }
                     }
                 });
             } else {

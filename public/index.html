@@ -759,171 +759,44 @@
                 // Update table
                 tableBody.innerHTML = '';
 
+                // Group calls by original call (for retries)
+                const callsByOriginal = {};
+                const originalCalls = [];
+                
                 data.calls.forEach((call, index) => {
-                    if (call) {
-                        const row = document.createElement('tr');
-                        
-                        // Determine status display - only Completed or Scheduled
-                        let statusClass, statusText;
-                        if (call.status === 'completed') {
-                            statusClass = 'status-completed';
-                            statusText = '✅ Completed';
-                        } else {
-                            statusClass = 'status-scheduled';
-                            statusText = '⏰ Scheduled';
+                    if (call.isRetry && call.originalCallId) {
+                        // This is a retry call
+                        if (!callsByOriginal[call.originalCallId]) {
+                            callsByOriginal[call.originalCallId] = [];
                         }
-                        
-                        // Keep scheduled time visible - show when they were supposed to be called
-                        let scheduledTime = '-';
-                        if (call.scheduledTimeLocal) {
-                            scheduledTime = call.scheduledTimeLocal;
-                        } else if (call.scheduledTime) {
-                            const date = new Date(call.scheduledTime);
-                            scheduledTime = date.toLocaleTimeString();
-                        } else if (call.message && call.message.includes('Scheduled for')) {
-                            const timeMatch = call.message.match(/Scheduled for (.+)/);
-                            if (timeMatch) {
-                                scheduledTime = timeMatch[1];
-                            }
-                        }
-                        if (scheduledTime === '-' && call.status === 'completed') {
-                            scheduledTime = 'Immediate';
-                        }
-                        
-                        // Format structured data outcome
-                        let outcomeDisplay = '-';
-                        if (call.structuredData) {
-                            const structured = call.structuredData;
-                            
-                            if (structured.CallOutcome) {
-                                let outcomeClass = '';
-                                switch(structured.CallOutcome) {
-                                    case 'interested': outcomeClass = 'outcome-interested'; break;
-                                    case 'voicemail': outcomeClass = 'outcome-voicemail'; break;
-                                    case 'send_listings': outcomeClass = 'outcome-listings'; break;
-                                    case 'callback': outcomeClass = 'outcome-callback'; break;
-                                    case 'not_interested': outcomeClass = 'outcome-not-interested'; break;
-                                    default: outcomeClass = 'outcome-other';
-                                }
-                                
-                                outcomeDisplay = `<span class="${outcomeClass}"><strong>${structured.CallOutcome.toUpperCase()}</strong></span>`;
-                                
-                                const details = [];
-                                if (structured.Answered) details.push(`Answered: ${structured.Answered}`);
-                                if (structured.Date) details.push(`Date: ${structured.Date}`);
-                                if (structured.Email) details.push(`Email: ${structured.Email}`);
-                                
-                                if (details.length > 0) {
-                                    outcomeDisplay += `<br><small>${details.join(' | ')}</small>`;
-                                }
-                            }
-                        } else if (call.status === 'completed') {
-                            const endedReason = call.endedReason || 'No outcome data';
-                            let outcomeClass = 'outcome-other';
-                            
-                            if (endedReason === 'voicemail') outcomeClass = 'outcome-voicemail';
-                            else if (endedReason === 'customer-ended-call') outcomeClass = 'outcome-interested';
-                            
-                            outcomeDisplay = `<span class="${outcomeClass}"><strong>${endedReason.toUpperCase()}</strong></span>`;
-                        }
-                        
-                        // Build basic details
-                        let detailsDisplay = call.message || '-';
-                        if (call.status === 'completed' && call.outcomeReceived) {
-                            let details = [];
-                            if (call.endedReason) details.push(`Reason: ${call.endedReason}`);
-                            if (call.duration) details.push(`Duration: ${Math.round(call.duration)}s`);
-                            if (call.cost) details.push(`Cost: $${call.cost.toFixed(4)}`);
-                            
-                            if (details.length > 0) {
-                                detailsDisplay = details.join(' | ');
-                            }
-                        }
-                        
-                        // Format summary with see more functionality
-                        let summaryDisplay = '-';
-                        if (call.summary) {
-                            const shortSummary = call.summary.length > 100 ? 
-                                call.summary.substring(0, 100) + '...' : call.summary;
-                            
-                            if (call.summary.length > 100) {
-                                const isExpanded = expandedStates[index] === true;
-                                summaryDisplay = `
-                                    <div class="summary-container">
-                                        <div class="summary-short" id="summary-short-${index}" style="${isExpanded ? 'display: none;' : ''}">
-                                            ${shortSummary}
-                                            <br><span class="see-more-btn" onclick="toggleSummary(${index})">See more</span>
-                                        </div>
-                                        <div class="summary-expanded" id="summary-expanded-${index}" style="${isExpanded ? '' : 'display: none;'}">
-                                            ${call.summary}
-                                            <br><span class="see-more-btn" onclick="toggleSummary(${index})">See less</span>
-                                        </div>
-                                    </div>
-                                `;
-                            } else {
-                                summaryDisplay = call.summary;
-                            }
-                        }
-
-                        // Format recording link
-                        let recordingDisplay = '-';
-                        if (call.recordingUrl) {
-                            recordingDisplay = `<button class="recording-btn" onclick="window.open('${call.recordingUrl}', '_blank')">🎵 Play</button>`;
-                        }
-
-                        // Check if name is being edited
-                        const nameIsEditing = editStates[`name-${index}`] !== undefined;
-                        const currentNameValue = editStates[`name-${index}`] || call.contact.name;
-                        
-                        // Check if phone is being edited  
-                        const phoneIsEditing = editStates[`phone-${index}`] !== undefined;
-                        const currentPhoneValue = editStates[`phone-${index}`] || call.contact.phone;
-
-                        row.innerHTML = `
-                            <td>${index + 1}</td>
-                            <td>
-                                <span id="name-display-${index}" style="${nameIsEditing ? 'display: none;' : ''}">${call.contact.name}</span>
-                                <span class="edit-btn" onclick="editName(${index})" title="Edit name" style="${nameIsEditing ? 'display: none;' : ''}">✏️</span>
-                                <input type="text" id="name-edit-${index}" class="edit-input" value="${currentNameValue}" style="${nameIsEditing ? 'display: inline-block;' : 'display: none;'}" onblur="saveName(${index})" onkeypress="if(event.key==='Enter') saveName(${index})">
-                            </td>
-                            <td>
-                                <span id="phone-display-${index}" style="${phoneIsEditing ? 'display: none;' : ''}">${call.contact.phone}</span>
-                                <span class="edit-btn" onclick="editPhone(${index})" title="Edit phone" style="${phoneIsEditing ? 'display: none;' : ''}">✏️</span>
-                                <input type="text" id="phone-edit-${index}" class="edit-input" value="${currentPhoneValue}" style="${phoneIsEditing ? 'display: inline-block;' : 'display: none;'}" onblur="savePhone(${index})" onkeypress="if(event.key==='Enter') savePhone(${index})">
-                            </td>
-                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td>${scheduledTime}</td>
-                            <td>${outcomeDisplay}</td>
-                            <td>${summaryDisplay}</td>
-                            <td>${recordingDisplay}</td>
-                            <td>${detailsDisplay}</td>
-                        `;
-                        
-                        tableBody.appendChild(row);
-                        
-                        // Restore focus to edit fields if they were active
-                        if (nameIsEditing) {
-                            setTimeout(() => {
-                                const nameEditField = document.getElementById(`name-edit-${index}`);
-                                if (nameEditField) {
-                                    nameEditField.focus();
-                                    nameEditField.setSelectionRange(nameEditField.value.length, nameEditField.value.length);
-                                }
-                            }, 10);
-                        }
-                        
-                        if (phoneIsEditing) {
-                            setTimeout(() => {
-                                const phoneEditField = document.getElementById(`phone-edit-${index}`);
-                                if (phoneEditField) {
-                                    phoneEditField.focus();
-                                    phoneEditField.setSelectionRange(phoneEditField.value.length, phoneEditField.value.length);
-                                }
-                            }, 10);
-                        }
+                        callsByOriginal[call.originalCallId].push({ call, index });
+                    } else {
+                        // This is an original call
+                        originalCalls.push({ call, index });
                     }
                 });
-
+                
+                // Sort original calls by index
+                originalCalls.sort((a, b) => (a.call.index || 0) - (b.call.index || 0));
+                
+                // Display calls: original calls first, then their retries
+                let displayIndex = 0;
+                originalCalls.forEach(({ call, index: originalIndex }) => {
+                    // Display the original call
+                    const row = createCallRow(call, displayIndex, false);
+                    tableBody.appendChild(row);
+                    displayIndex++;
+                    
+                    // Display retries for this call if any
+                    if (callsByOriginal[call.callId]) {
+                        callsByOriginal[call.callId].forEach(({ call: retryCall }) => {
+                            const retryRow = createCallRow(retryCall, displayIndex, true, call.callId);
+                            tableBody.appendChild(retryRow);
+                            displayIndex++;
+                        });
+                    }
+                });
+                
                 // Apply current filter
                 const rows = tableBody.querySelectorAll('tr');
                 rows.forEach(row => {
@@ -941,6 +814,151 @@
             } catch (error) {
                 console.error('Error updating status:', error);
             }
+        }
+        
+        // NEW: Helper function to create a call row
+        function createCallRow(call, displayIndex, isRetry, originalCallId) {
+            const row = document.createElement('tr');
+            
+            // Add retry styling and indicator
+            if (isRetry) {
+                row.style.backgroundColor = '#f8f9fa';
+                row.style.opacity = '0.9';
+                row.classList.add('retry-row');
+            }
+            
+            // Determine status display
+            let statusClass, statusText;
+            if (call.status === 'completed') {
+                statusClass = 'status-completed';
+                statusText = '✅ Completed';
+            } else if (call.status === 'calling') {
+                statusClass = 'status-calling';
+                statusText = '📞 Calling';
+            } else if (call.status === 'failed') {
+                statusClass = 'status-failed';
+                statusText = '❌ Failed';
+            } else {
+                statusClass = 'status-scheduled';
+                statusText = '⏰ Scheduled';
+            }
+            
+            // Keep scheduled time visible
+            let scheduledTime = '-';
+            if (call.scheduledTimeLocal) {
+                scheduledTime = call.scheduledTimeLocal;
+            } else if (call.scheduledTime) {
+                const date = new Date(call.scheduledTime);
+                scheduledTime = date.toLocaleTimeString();
+            } else if (call.message && call.message.includes('Scheduled for')) {
+                const timeMatch = call.message.match(/Scheduled for (.+)/);
+                if (timeMatch) {
+                    scheduledTime = timeMatch[1];
+                }
+            }
+            if (scheduledTime === '-' && call.status === 'completed') {
+                scheduledTime = 'Immediate';
+            }
+            
+            // Format name display with retry indicator
+            let nameDisplay = call.contact.name;
+            if (isRetry) {
+                nameDisplay = `↪ ${nameDisplay} <small style="color: #6c757d;">(Retry)</small>`;
+            }
+            
+            // Format structured data outcome
+            let outcomeDisplay = '-';
+            if (call.structuredData) {
+                const structured = call.structuredData;
+                
+                if (structured.CallOutcome) {
+                    let outcomeClass = '';
+                    switch(structured.CallOutcome) {
+                        case 'interested': outcomeClass = 'outcome-interested'; break;
+                        case 'voicemail': outcomeClass = 'outcome-voicemail'; break;
+                        case 'send_listings': outcomeClass = 'outcome-listings'; break;
+                        case 'callback': outcomeClass = 'outcome-callback'; break;
+                        case 'not_interested': outcomeClass = 'outcome-not-interested'; break;
+                        default: outcomeClass = 'outcome-other';
+                    }
+                    
+                    outcomeDisplay = `<span class="${outcomeClass}"><strong>${structured.CallOutcome.toUpperCase()}</strong></span>`;
+                    
+                    const details = [];
+                    if (structured.Answered) details.push(`Answered: ${structured.Answered}`);
+                    if (structured.Date) details.push(`Date: ${structured.Date}`);
+                    if (structured.Email) details.push(`Email: ${structured.Email}`);
+                    
+                    if (details.length > 0) {
+                        outcomeDisplay += `<br><small>${details.join(' | ')}</small>`;
+                    }
+                }
+            } else if (call.status === 'completed') {
+                const endedReason = call.endedReason || 'No outcome data';
+                let outcomeClass = 'outcome-other';
+                
+                if (endedReason === 'voicemail') outcomeClass = 'outcome-voicemail';
+                else if (endedReason === 'customer-ended-call') outcomeClass = 'outcome-interested';
+                
+                outcomeDisplay = `<span class="${outcomeClass}"><strong>${endedReason.toUpperCase()}</strong></span>`;
+            }
+            
+            // Build basic details
+            let detailsDisplay = call.message || '-';
+            if (call.status === 'completed' && call.outcomeReceived) {
+                let details = [];
+                if (call.endedReason) details.push(`Reason: ${call.endedReason}`);
+                if (call.duration) details.push(`Duration: ${Math.round(call.duration)}s`);
+                if (call.cost) details.push(`Cost: $${call.cost.toFixed(4)}`);
+                
+                if (details.length > 0) {
+                    detailsDisplay = details.join(' | ');
+                }
+            }
+            
+            // Format summary
+            let summaryDisplay = '-';
+            if (call.summary) {
+                const shortSummary = call.summary.length > 100 ? 
+                    call.summary.substring(0, 100) + '...' : call.summary;
+                
+                if (call.summary.length > 100) {
+                    summaryDisplay = `
+                        <div class="summary-container">
+                            <div class="summary-short" id="summary-short-${displayIndex}">
+                                ${shortSummary}
+                                <br><span class="see-more-btn" onclick="toggleSummary(${displayIndex})">See more</span>
+                            </div>
+                            <div class="summary-expanded" id="summary-expanded-${displayIndex}" style="display: none;">
+                                ${call.summary}
+                                <br><span class="see-more-btn" onclick="toggleSummary(${displayIndex})">See less</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    summaryDisplay = call.summary;
+                }
+            }
+
+            // Format recording link
+            let recordingDisplay = '-';
+            if (call.recordingUrl) {
+                recordingDisplay = `<button class="recording-btn" onclick="window.open('${call.recordingUrl}', '_blank')">🎵 Play</button>`;
+            }
+
+            row.innerHTML = `
+                <td>${isRetry ? '↪' : displayIndex + 1}</td>
+                <td>${nameDisplay}</td>
+                <td>${call.contact.phone}</td>
+                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                <td>${scheduledTime}</td>
+                <td>${outcomeDisplay}</td>
+                <td>${summaryDisplay}</td>
+                <td>${recordingDisplay}</td>
+                <td>${detailsDisplay}</td>
+            `;
+            
+            return row;
         }
         
         // Start status updates
