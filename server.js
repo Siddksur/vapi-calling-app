@@ -192,6 +192,84 @@ const DB_HELPERS = {
         });
     },
     
+    // Get all calls for a specific campaign ID
+    getCallsForCampaign: (campaignId, callback) => {
+        db.all(`
+            SELECT * FROM calls 
+            WHERE campaign_id = ? 
+            ORDER BY index_position
+        `, [campaignId], (err, rows) => {
+            if (err) {
+                console.error('❌ Error fetching calls for campaign:', err);
+                callback(err, []);
+                return;
+            }
+            
+            // Convert database rows back to our format
+            const calls = rows.map(row => ({
+                contact: {
+                    name: row.contact_name,
+                    phone: row.contact_phone,
+                    address: row.contact_address
+                },
+                callId: row.call_id,
+                status: row.status,
+                scheduledTime: row.scheduled_time,
+                scheduledTimeLocal: row.scheduled_time_local,
+                endedReason: row.ended_reason,
+                callOutcome: row.call_outcome,
+                duration: row.duration,
+                cost: row.cost,
+                successEvaluation: row.success_evaluation,
+                structuredData: row.structured_data ? JSON.parse(row.structured_data) : null,
+                summary: row.summary,
+                recordingUrl: row.recording_url,
+                actualCallTime: row.actual_call_time,
+                message: row.message,
+                timestamp: row.timestamp,
+                index: row.index_position,
+                outcomeReceived: row.outcome_received === 1,
+                success: row.success_evaluation === 'Pass'
+            }));
+            
+            callback(null, calls);
+        });
+    },
+    
+    // Get all campaigns with metadata
+    getAllCampaigns: (callback) => {
+        db.all(`
+            SELECT 
+                campaign_id,
+                COUNT(*) as call_count,
+                MIN(timestamp) as created_at,
+                MAX(timestamp) as last_updated,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+                SUM(CASE WHEN success_evaluation = 'Pass' THEN 1 ELSE 0 END) as successful_count
+            FROM calls
+            WHERE campaign_id IS NOT NULL
+            GROUP BY campaign_id
+            ORDER BY created_at DESC
+        `, [], (err, rows) => {
+            if (err) {
+                console.error('❌ Error fetching campaigns:', err);
+                callback(err, []);
+                return;
+            }
+            
+            const campaigns = rows.map(row => ({
+                campaignId: row.campaign_id,
+                callCount: row.call_count,
+                createdAt: row.created_at,
+                lastUpdated: row.last_updated,
+                completedCount: row.completed_count,
+                successfulCount: row.successful_count
+            }));
+            
+            callback(null, campaigns);
+        });
+    },
+    
     // Clear old campaign data (optional - for cleanup)
     clearOldCampaigns: (daysOld = 7) => {
         const cutoffDate = new Date();
@@ -468,9 +546,56 @@ app.get('/health', (req, res) => {
     res.json({ status: 'OK', message: 'Server is running' });
 });
 
-// UPDATED: Get current call status from database
+// NEW: Get all campaigns endpoint
+app.get('/api/campaigns', (req, res) => {
+    DB_HELPERS.getAllCampaigns((err, campaigns) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error fetching campaigns' });
+        }
+        res.json({ campaigns: campaigns });
+    });
+});
+
+// UPDATED: Get current call status from database (now accepts optional campaignId parameter)
 app.get('/status', (req, res) => {
-    // If no current campaign, try to load the most recent one
+    const requestedCampaignId = req.query.campaignId;
+    
+    // If a specific campaign ID is requested, use it
+    if (requestedCampaignId) {
+        DB_HELPERS.getCallsForCampaign(requestedCampaignId, (err, calls) => {
+            if (err) {
+                return res.status(500).json({ error: 'Error fetching call data' });
+            }
+            
+            const totalCalls = calls.length;
+            const completedCalls = calls.filter(call => call.status === 'completed').length;
+            const successfulCalls = calls.filter(call => call.successEvaluation === 'Pass').length;
+            const failedCalls = calls.filter(call => call.successEvaluation === 'Fail').length;
+            // For past campaigns, active/pending calls are not relevant (they're historical)
+            const activeCalls = requestedCampaignId === CALL_SYSTEM.currentCampaignId ? CALL_SYSTEM.activeCalls : 0;
+            const pendingCalls = requestedCampaignId === CALL_SYSTEM.currentCampaignId ? CALL_SYSTEM.pendingCalls.length : 0;
+            const scheduledCalls = calls.filter(call => call.status === 'scheduled').length;
+            
+            res.json({
+                calls: calls,
+                summary: {
+                    total: totalCalls,
+                    completed: completedCalls,
+                    successful: successfulCalls,
+                    failed: failedCalls,
+                    active: activeCalls,
+                    pending: pendingCalls,
+                    scheduled: scheduledCalls
+                },
+                timers: requestedCampaignId === CALL_SYSTEM.currentCampaignId ? CALL_SYSTEM.timers.length : 0,
+                campaignId: requestedCampaignId,
+                isCurrentCampaign: requestedCampaignId === CALL_SYSTEM.currentCampaignId
+            });
+        });
+        return;
+    }
+    
+    // Original behavior: If no current campaign, try to load the most recent one
     if (!CALL_SYSTEM.currentCampaignId) {
         db.get(`
             SELECT campaign_id FROM calls 
@@ -513,7 +638,8 @@ app.get('/status', (req, res) => {
                     scheduled: scheduledCalls
                 },
                 timers: CALL_SYSTEM.timers.length,
-                campaignId: CALL_SYSTEM.currentCampaignId
+                campaignId: CALL_SYSTEM.currentCampaignId,
+                isCurrentCampaign: true
             });
         });
     }

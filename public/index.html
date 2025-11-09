@@ -223,6 +223,32 @@
             background-color: #007cba;
             transition: width 0.3s ease;
         }
+        
+        .campaign-selector {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+        }
+        .campaign-selector label {
+            font-weight: bold;
+            margin-right: 10px;
+            color: #495057;
+        }
+        .campaign-selector select {
+            min-width: 300px;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            background-color: white;
+        }
+        .campaign-info {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -404,6 +430,15 @@
     <!-- Status Display Container -->
     <div id="statusContainer" class="status-container">
         <h3>📊 Call Status Dashboard</h3>
+        
+        <!-- Campaign Selector Dropdown -->
+        <div class="campaign-selector">
+            <label for="campaignSelector">Select Campaign:</label>
+            <select id="campaignSelector" onchange="handleCampaignChange()">
+                <option value="">Loading campaigns...</option>
+            </select>
+            <div class="campaign-info" id="campaignInfo"></div>
+        </div>
 
         <div class="filter-buttons" style="margin-bottom: 15px;">
     <button type="button" onclick="filterCalls('all')" class="filter-btn active" id="filter-all">All Calls</button>
@@ -457,41 +492,167 @@
 
     <script>
         let statusUpdateInterval = null;
+        let selectedCampaignId = null; // Track currently selected campaign
+        let allCampaigns = []; // Store all campaigns
         
         // Check for existing campaigns on page load
         window.addEventListener('load', function() {
             console.log('🔄 Page loaded, checking for existing campaigns...');
-            checkForExistingCampaigns();
+            loadCampaignsAndStatus();
         });
         
-        // Function to check for existing campaigns
-        async function checkForExistingCampaigns() {
+        // NEW: Load all campaigns and populate dropdown
+        async function loadCampaigns() {
             try {
-                const response = await fetch('/status');
+                const response = await fetch('/api/campaigns');
                 const data = await response.json();
                 
-                if (data.calls && data.calls.length > 0) {
-                    console.log('🎯 Found existing campaign with', data.calls.length, 'calls');
-                    document.getElementById('statusContainer').style.display = 'block';
-                    document.getElementById('cancelBtn').style.display = 'inline-block';
-                    
-                    // Show loading message
-                    const resultDiv = document.getElementById('result');
-                    resultDiv.innerHTML = `
-                        <div class="info">
-                            <strong>📊 Loaded existing campaign</strong><br>
-                            Found ${data.calls.length} calls from previous session<br>
-                            Campaign ID: ${data.campaignId || 'Unknown'}
-                        </div>
-                    `;
-                    
-                    startStatusUpdates();
+                if (data.campaigns && data.campaigns.length > 0) {
+                    allCampaigns = data.campaigns;
+                    populateCampaignDropdown(data.campaigns);
+                    return data.campaigns;
                 } else {
-                    console.log('📭 No existing campaigns found');
+                    console.log('📭 No campaigns found');
+                    const selector = document.getElementById('campaignSelector');
+                    selector.innerHTML = '<option value="">No campaigns found</option>';
+                    return [];
                 }
             } catch (error) {
-                console.error('Error checking for existing campaigns:', error);
+                console.error('Error loading campaigns:', error);
+                const selector = document.getElementById('campaignSelector');
+                selector.innerHTML = '<option value="">Error loading campaigns</option>';
+                return [];
             }
+        }
+        
+        // NEW: Populate campaign dropdown
+        function populateCampaignDropdown(campaigns) {
+            const selector = document.getElementById('campaignSelector');
+            selector.innerHTML = ''; // Clear existing options
+            
+            campaigns.forEach(campaign => {
+                const option = document.createElement('option');
+                option.value = campaign.campaignId;
+                
+                // Format the date for display
+                const date = new Date(campaign.createdAt);
+                const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                
+                // Create a nice display label
+                option.textContent = `${campaign.campaignId} - ${campaign.callCount} calls (${dateStr})`;
+                option.setAttribute('data-campaign', JSON.stringify(campaign));
+                selector.appendChild(option);
+            });
+            
+            // If we have a selected campaign, set it in the dropdown
+            if (selectedCampaignId) {
+                selector.value = selectedCampaignId;
+                updateCampaignInfo(selectedCampaignId);
+            } else if (campaigns.length > 0) {
+                // Select the first (most recent) campaign by default
+                selectedCampaignId = campaigns[0].campaignId;
+                selector.value = selectedCampaignId;
+                updateCampaignInfo(selectedCampaignId);
+            }
+        }
+        
+        // NEW: Update campaign info display
+        function updateCampaignInfo(campaignId) {
+            const campaign = allCampaigns.find(c => c.campaignId === campaignId);
+            const infoDiv = document.getElementById('campaignInfo');
+            
+            if (campaign) {
+                const date = new Date(campaign.createdAt);
+                const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                infoDiv.innerHTML = `
+                    <strong>Campaign Info:</strong> 
+                    ${campaign.callCount} total calls | 
+                    ${campaign.completedCount || 0} completed | 
+                    ${campaign.successfulCount || 0} successful | 
+                    Created: ${dateStr}
+                `;
+            } else {
+                infoDiv.innerHTML = '';
+            }
+        }
+        
+        // NEW: Handle campaign selection change
+        function handleCampaignChange() {
+            const selector = document.getElementById('campaignSelector');
+            selectedCampaignId = selector.value;
+            
+            if (selectedCampaignId) {
+                updateCampaignInfo(selectedCampaignId);
+                // Update the status display with the selected campaign
+                updateCallStatus();
+            }
+        }
+        
+        // NEW: Combined function to load campaigns and check for existing status
+        async function loadCampaignsAndStatus() {
+            // First load all campaigns
+            const campaigns = await loadCampaigns();
+            
+            // If we have campaigns, show the status container
+            if (campaigns && campaigns.length > 0) {
+                document.getElementById('statusContainer').style.display = 'block';
+                
+                // Then check for existing campaign status
+                try {
+                    const campaignId = selectedCampaignId || null;
+                    const url = campaignId ? `/status?campaignId=${campaignId}` : '/status';
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    
+                    if (data.calls && data.calls.length > 0) {
+                        console.log('🎯 Found existing campaign with', data.calls.length, 'calls');
+                        
+                        // Update selected campaign ID if we got one from the server
+                        if (data.campaignId) {
+                            selectedCampaignId = data.campaignId;
+                            const selector = document.getElementById('campaignSelector');
+                            if (selector) {
+                                selector.value = data.campaignId;
+                                updateCampaignInfo(data.campaignId);
+                            }
+                        }
+                        
+                        // Show cancel button only if viewing the current/active campaign
+                        if (data.isCurrentCampaign && data.summary && (data.summary.scheduled > 0 || data.timers > 0)) {
+                            document.getElementById('cancelBtn').style.display = 'inline-block';
+                        } else {
+                            document.getElementById('cancelBtn').style.display = 'none';
+                        }
+                        
+                        // Show loading message
+                        const resultDiv = document.getElementById('result');
+                        resultDiv.innerHTML = `
+                            <div class="info">
+                                <strong>📊 Loaded campaign</strong><br>
+                                Found ${data.calls.length} calls<br>
+                                Campaign ID: ${data.campaignId || 'Unknown'}
+                            </div>
+                        `;
+                        
+                        startStatusUpdates();
+                    } else {
+                        // Campaign exists but has no calls yet, still show the container
+                        updateCallStatus();
+                    }
+                } catch (error) {
+                    console.error('Error checking for existing campaigns:', error);
+                    // Still show the container if we have campaigns
+                    updateCallStatus();
+                }
+            } else {
+                console.log('📭 No campaigns found');
+            }
+        }
+        
+        // DEPRECATED: Function to check for existing campaigns (keeping for backward compatibility)
+        async function checkForExistingCampaigns() {
+            // This function is now replaced by loadCampaignsAndStatus
+            await loadCampaignsAndStatus();
         }
         
         // Update time window info when times change
@@ -524,11 +685,38 @@
         // Initialize time info
         updateTimeInfo();
 
-        // Function to update call status display
+        // Function to update call status display (now supports campaign selection)
         async function updateCallStatus() {
             try {
-                const response = await fetch('/status');
+                // Use selected campaign ID if available, otherwise use default
+                const campaignId = selectedCampaignId || null;
+                const url = campaignId ? `/status?campaignId=${campaignId}` : '/status';
+                const response = await fetch(url);
                 const data = await response.json();
+                
+                // Update selected campaign ID from response if we don't have one
+                if (data.campaignId && !selectedCampaignId) {
+                    selectedCampaignId = data.campaignId;
+                    const selector = document.getElementById('campaignSelector');
+                    if (selector) {
+                        selector.value = data.campaignId;
+                        updateCampaignInfo(data.campaignId);
+                    }
+                }
+                
+                // Update campaign info if we have the campaign ID
+                if (data.campaignId && selectedCampaignId === data.campaignId) {
+                    updateCampaignInfo(data.campaignId);
+                }
+                
+                // Show/hide cancel button based on whether this is the current active campaign
+                // Only show cancel button if this is the current campaign (has active timers/scheduled calls)
+                if (data.isCurrentCampaign && data.summary && (data.summary.scheduled > 0 || data.timers > 0)) {
+                    document.getElementById('cancelBtn').style.display = 'inline-block';
+                } else {
+                    // Hide cancel button for past campaigns
+                    document.getElementById('cancelBtn').style.display = 'none';
+                }
                 
                 // Update summary cards
                 document.getElementById('totalCalls').textContent = data.summary.total;
@@ -818,6 +1006,19 @@
                             Campaign ID: ${result.campaignId}
                         </div>
                     `;
+                    
+                    // Update selected campaign to the new one
+                    selectedCampaignId = result.campaignId;
+                    
+                    // Reload campaigns to include the new one
+                    await loadCampaigns();
+                    
+                    // Set the dropdown to the new campaign
+                    const selector = document.getElementById('campaignSelector');
+                    if (selector) {
+                        selector.value = result.campaignId;
+                        updateCampaignInfo(result.campaignId);
+                    }
                     
                     // Show status container and cancel button
                     statusContainer.style.display = 'block';
