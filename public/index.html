@@ -440,12 +440,22 @@
             <div class="campaign-info" id="campaignInfo"></div>
         </div>
 
-        <div class="filter-buttons" style="margin-bottom: 15px;">
-    <button type="button" onclick="filterCalls('all')" class="filter-btn active" id="filter-all">All Calls</button>
-    <button type="button" onclick="filterCalls('completed')" class="filter-btn" id="filter-completed">Completed</button>
-    <button type="button" onclick="filterCalls('failed')" class="filter-btn" id="filter-failed">Failed</button>
-    <button type="button" onclick="filterCalls('scheduled')" class="filter-btn" id="filter-scheduled">Scheduled</button>
-</div>
+        <div class="filter-buttons status-filters" style="margin-bottom: 10px;">
+            <button type="button" onclick="filterByStatus('all')" class="filter-btn status-filter-btn active" id="status-filter-all">All Calls</button>
+            <button type="button" onclick="filterByStatus('completed')" class="filter-btn status-filter-btn" id="status-filter-completed">Completed</button>
+            <button type="button" onclick="filterByStatus('failed')" class="filter-btn status-filter-btn" id="status-filter-failed">Failed</button>
+            <button type="button" onclick="filterByStatus('scheduled')" class="filter-btn status-filter-btn" id="status-filter-scheduled">Scheduled</button>
+        </div>
+
+        <div class="filter-buttons outcome-filters" style="margin-bottom: 15px;">
+            <button type="button" onclick="filterByOutcome('all')" class="filter-btn outcome-filter-btn active" id="outcome-filter-all">All Outcomes</button>
+            <button type="button" onclick="filterByOutcome('interested')" class="filter-btn outcome-filter-btn" id="outcome-filter-interested">Interested</button>
+            <button type="button" onclick="filterByOutcome('callback')" class="filter-btn outcome-filter-btn" id="outcome-filter-callback">Callback</button>
+            <button type="button" onclick="filterByOutcome('send_listings')" class="filter-btn outcome-filter-btn" id="outcome-filter-send_listings">Send Listings</button>
+            <button type="button" onclick="filterByOutcome('voicemail')" class="filter-btn outcome-filter-btn" id="outcome-filter-voicemail">Voicemail</button>
+            <button type="button" onclick="filterByOutcome('do_not_call')" class="filter-btn outcome-filter-btn" id="outcome-filter-do_not_call">Do Not Call</button>
+            <button type="button" onclick="filterByOutcome('unclear')" class="filter-btn outcome-filter-btn" id="outcome-filter-unclear">Unclear</button>
+        </div>
         
         <div class="status-summary">
             <div class="status-card">
@@ -494,6 +504,8 @@
         let statusUpdateInterval = null;
         let selectedCampaignId = null; // Track currently selected campaign
         let allCampaigns = []; // Store all campaigns
+        let currentStatusFilter = 'all';
+        let currentOutcomeFilter = 'all';
         
         // Check for existing campaigns on page load
         window.addEventListener('load', function() {
@@ -685,6 +697,30 @@
         // Initialize time info
         updateTimeInfo();
 
+        function normalizeOutcomeValue(value) {
+            if (!value) return 'unknown';
+            return value.toString().trim().toLowerCase().replace(/[\s-]+/g, '_');
+        }
+
+        function formatOutcomeLabel(value) {
+            if (!value) return 'UNKNOWN';
+            return value.toString().replace(/[_-]+/g, ' ').toUpperCase();
+        }
+
+        function getOutcomeClass(value) {
+            switch (value) {
+                case 'interested': return 'outcome-interested';
+                case 'voicemail': return 'outcome-voicemail';
+                case 'send_listings': return 'outcome-listings';
+                case 'callback': return 'outcome-callback';
+                case 'not_interested':
+                case 'do_not_call':
+                    return 'outcome-not-interested';
+                default:
+                    return 'outcome-other';
+            }
+        }
+
         // Function to update call status display (now supports campaign selection)
         async function updateCallStatus() {
             try {
@@ -794,19 +830,8 @@
                     }
                 });
                 
-                // Apply current filter
-                const rows = tableBody.querySelectorAll('tr');
-                rows.forEach(row => {
-                    const statusBadge = row.querySelector('.status-badge');
-                    if (statusBadge) {
-                        const isVisible = currentFilter === 'all' || 
-                                         (currentFilter === 'completed' && statusBadge.textContent.includes('✅')) ||
-                                         (currentFilter === 'failed' && statusBadge.textContent.includes('❌')) ||
-                                         (currentFilter === 'scheduled' && statusBadge.textContent.includes('⏰'));
-                        
-                        row.style.display = isVisible ? '' : 'none';
-                    }
-                });
+                // Apply active filters
+                applyFilters();
                 
             } catch (error) {
                 console.error('Error updating status:', error);
@@ -845,6 +870,10 @@
                 statusText = '⏰ Scheduled';
             }
             
+            let statusValue = (call.status || '').toLowerCase();
+            if (statusValue === 'calling') statusValue = 'scheduled';
+            if (!statusValue) statusValue = 'unknown';
+            
             // Keep scheduled time visible
             let scheduledTime = '-';
             if (call.scheduledTimeLocal) {
@@ -868,42 +897,52 @@
                 nameDisplay = `↪ ${nameDisplay} <small style="color: #6c757d;">(Retry)</small>`;
             }
             
-            // Format structured data outcome
-            let outcomeDisplay = '-';
+            // Normalize structured data if it arrived as a string
+            let structuredData = null;
             if (call.structuredData) {
-                const structured = call.structuredData;
-                
-                if (structured.CallOutcome) {
-                    let outcomeClass = '';
-                    switch(structured.CallOutcome) {
-                        case 'interested': outcomeClass = 'outcome-interested'; break;
-                        case 'voicemail': outcomeClass = 'outcome-voicemail'; break;
-                        case 'send_listings': outcomeClass = 'outcome-listings'; break;
-                        case 'callback': outcomeClass = 'outcome-callback'; break;
-                        case 'not_interested': outcomeClass = 'outcome-not-interested'; break;
-                        default: outcomeClass = 'outcome-other';
+                if (typeof call.structuredData === 'string') {
+                    try {
+                        structuredData = JSON.parse(call.structuredData);
+                    } catch (e) {
+                        structuredData = null;
                     }
-                    
-                    outcomeDisplay = `<span class="${outcomeClass}"><strong>${structured.CallOutcome.toUpperCase()}</strong></span>`;
-                    
+                } else {
+                    structuredData = call.structuredData;
+                }
+            }
+            
+            // Determine outcome for filtering and display
+            let rawOutcome = '';
+            if (structuredData && structuredData.CallOutcome) {
+                rawOutcome = structuredData.CallOutcome;
+            } else if (call.callOutcome) {
+                rawOutcome = call.callOutcome;
+            } else if (call.status === 'completed' && call.endedReason) {
+                rawOutcome = call.endedReason;
+            }
+            
+            const normalizedOutcome = normalizeOutcomeValue(rawOutcome);
+            const outcomeClass = getOutcomeClass(normalizedOutcome);
+            const outcomeLabel = rawOutcome ? formatOutcomeLabel(rawOutcome) : 'UNKNOWN';
+            
+            let outcomeDisplay = '-';
+            if (rawOutcome) {
+                outcomeDisplay = `<span class="${outcomeClass}"><strong>${outcomeLabel}</strong></span>`;
+                if (structuredData) {
                     const details = [];
-                    if (structured.Answered) details.push(`Answered: ${structured.Answered}`);
-                    if (structured.Date) details.push(`Date: ${structured.Date}`);
-                    if (structured.Email) details.push(`Email: ${structured.Email}`);
-                    
+                    if (structuredData.Answered) details.push(`Answered: ${structuredData.Answered}`);
+                    if (structuredData.Date) details.push(`Date: ${structuredData.Date}`);
+                    if (structuredData.Email) details.push(`Email: ${structuredData.Email}`);
                     if (details.length > 0) {
                         outcomeDisplay += `<br><small>${details.join(' | ')}</small>`;
                     }
                 }
             } else if (call.status === 'completed') {
-                const endedReason = call.endedReason || 'No outcome data';
-                let outcomeClass = 'outcome-other';
-                
-                if (endedReason === 'voicemail') outcomeClass = 'outcome-voicemail';
-                else if (endedReason === 'customer-ended-call') outcomeClass = 'outcome-interested';
-                
-                outcomeDisplay = `<span class="${outcomeClass}"><strong>${endedReason.toUpperCase()}</strong></span>`;
+                outcomeDisplay = `<span class="${outcomeClass}"><strong>NO OUTCOME DATA</strong></span>`;
             }
+            
+            row.dataset.status = statusValue;
+            row.dataset.outcome = normalizedOutcome;
             
             // Build basic details
             let detailsDisplay = call.message || '-';
@@ -1092,17 +1131,41 @@
             cancelBtn.textContent = 'Cancel All Calls';
         });
 
-        let currentFilter = 'all';
-
-        function filterCalls(filter) {
-            currentFilter = filter;
+        function filterByStatus(filter) {
+            currentStatusFilter = filter;
             
-            // Update active button
-            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(`filter-${filter}`).classList.add('active');
+            document.querySelectorAll('.status-filter-btn').forEach(btn => btn.classList.remove('active'));
+            const targetButton = document.getElementById(`status-filter-${filter}`);
+            if (targetButton) {
+                targetButton.classList.add('active');
+            }
             
-            // Filter will be applied on next status update
-            updateCallStatus();
+            applyFilters();
+        }
+        
+        function filterByOutcome(filter) {
+            currentOutcomeFilter = filter;
+            
+            document.querySelectorAll('.outcome-filter-btn').forEach(btn => btn.classList.remove('active'));
+            const targetButton = document.getElementById(`outcome-filter-${filter}`);
+            if (targetButton) {
+                targetButton.classList.add('active');
+            }
+            
+            applyFilters();
+        }
+        
+        function applyFilters() {
+            const rows = document.querySelectorAll('#callsTableBody tr');
+            rows.forEach(row => {
+                const statusValue = row.dataset.status || 'unknown';
+                const outcomeValue = row.dataset.outcome || 'unknown';
+                
+                const statusMatches = currentStatusFilter === 'all' || statusValue === currentStatusFilter;
+                const outcomeMatches = currentOutcomeFilter === 'all' || outcomeValue === currentOutcomeFilter;
+                
+                row.style.display = statusMatches && outcomeMatches ? '' : 'none';
+            });
         }
 
         // Toggle summary display by ID (supports both index and callId)
