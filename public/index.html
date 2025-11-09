@@ -732,29 +732,26 @@
                 // PRESERVE EDIT STATES AND EXPANDED SUMMARIES
                 const tableBody = document.getElementById('callsTableBody');
                 
-                // Save current edit states before updating table
+                // Save current edit states and expanded summaries before updating table
+                // Use callId as key for more reliable tracking across updates
                 const editStates = {};
-                const expandedStates = {};
+                const expandedStates = window.expandedStates || {};
                 
-                data.calls.forEach((call, index) => {
-                    // Check if name is being edited
-                    const nameEdit = document.getElementById(`name-edit-${index}`);
-                    if (nameEdit && nameEdit.style.display !== 'none') {
-                        editStates[`name-${index}`] = nameEdit.value;
-                    }
-                    
-                    // Check if phone is being edited
-                    const phoneEdit = document.getElementById(`phone-edit-${index}`);
-                    if (phoneEdit && phoneEdit.style.display !== 'none') {
-                        editStates[`phone-${index}`] = phoneEdit.value;
-                    }
-                    
-                    // Check if summary is expanded
-                    const summaryExpanded = document.getElementById(`summary-expanded-${index}`);
-                    if (summaryExpanded && summaryExpanded.style.display !== 'none') {
-                        expandedStates[index] = true;
+                // Check all existing summary-expanded elements to preserve state
+                const allExpanded = document.querySelectorAll('[id^="summary-expanded-"]');
+                allExpanded.forEach(expandedDiv => {
+                    if (expandedDiv && expandedDiv.style.display !== 'none') {
+                        const id = expandedDiv.id;
+                        // Extract the identifier (callId or index)
+                        const match = id.match(/summary-expanded-(.+)/);
+                        if (match) {
+                            expandedStates[match[1]] = true;
+                        }
                     }
                 });
+                
+                // Store expanded states globally so they persist across updates
+                window.expandedStates = expandedStates;
 
                 // Update table
                 tableBody.innerHTML = '';
@@ -782,15 +779,15 @@
                 // Display calls: original calls first, then their retries
                 let displayIndex = 0;
                 originalCalls.forEach(({ call, index: originalIndex }) => {
-                    // Display the original call
-                    const row = createCallRow(call, displayIndex, false);
+                    // Display the original call - pass expandedStates
+                    const row = createCallRow(call, displayIndex, false, null, expandedStates);
                     tableBody.appendChild(row);
                     displayIndex++;
                     
                     // Display retries for this call if any
                     if (callsByOriginal[call.callId]) {
                         callsByOriginal[call.callId].forEach(({ call: retryCall }) => {
-                            const retryRow = createCallRow(retryCall, displayIndex, true, call.callId);
+                            const retryRow = createCallRow(retryCall, displayIndex, true, call.callId, expandedStates);
                             tableBody.appendChild(retryRow);
                             displayIndex++;
                         });
@@ -817,7 +814,12 @@
         }
         
         // NEW: Helper function to create a call row
-        function createCallRow(call, displayIndex, isRetry, originalCallId) {
+        function createCallRow(call, displayIndex, isRetry, originalCallId, expandedStates) {
+            // Use global expandedStates if not provided
+            if (!expandedStates) {
+                expandedStates = window.expandedStates || {};
+            }
+            
             const row = document.createElement('tr');
             
             // Add retry styling and indicator
@@ -916,22 +918,28 @@
                 }
             }
             
-            // Format summary
+            // Format summary - use callId for stable identification across updates
             let summaryDisplay = '-';
             if (call.summary) {
                 const shortSummary = call.summary.length > 100 ? 
                     call.summary.substring(0, 100) + '...' : call.summary;
                 
                 if (call.summary.length > 100) {
+                    // Use callId if available, otherwise fall back to displayIndex
+                    const summaryId = call.callId || `call-${displayIndex}`;
+                    // Check expanded state from parameter or global state
+                    const stateToCheck = expandedStates || window.expandedStates || {};
+                    const isExpanded = stateToCheck[summaryId] === true;
+                    
                     summaryDisplay = `
                         <div class="summary-container">
-                            <div class="summary-short" id="summary-short-${displayIndex}">
+                            <div class="summary-short" id="summary-short-${summaryId}" style="${isExpanded ? 'display: none;' : ''}">
                                 ${shortSummary}
-                                <br><span class="see-more-btn" onclick="toggleSummary(${displayIndex})">See more</span>
+                                <br><span class="see-more-btn" onclick="toggleSummaryById('${summaryId}')">See more</span>
                             </div>
-                            <div class="summary-expanded" id="summary-expanded-${displayIndex}" style="display: none;">
+                            <div class="summary-expanded" id="summary-expanded-${summaryId}" style="${isExpanded ? '' : 'display: none;'}">
                                 ${call.summary}
-                                <br><span class="see-more-btn" onclick="toggleSummary(${displayIndex})">See less</span>
+                                <br><span class="see-more-btn" onclick="toggleSummaryById('${summaryId}')">See less</span>
                             </div>
                         </div>
                     `;
@@ -1097,19 +1105,40 @@
             updateCallStatus();
         }
 
-        // Toggle summary display
-function toggleSummary(index) {
-    const shortDiv = document.getElementById(`summary-short-${index}`);
-    const expandedDiv = document.getElementById(`summary-expanded-${index}`);
-    
-    if (shortDiv.style.display === 'none') {
-        shortDiv.style.display = 'block';
-        expandedDiv.style.display = 'none';
-    } else {
-        shortDiv.style.display = 'none';
-        expandedDiv.style.display = 'block';
-    }
-}
+        // Toggle summary display by ID (supports both index and callId)
+        function toggleSummaryById(summaryId) {
+            const shortDiv = document.getElementById(`summary-short-${summaryId}`);
+            const expandedDiv = document.getElementById(`summary-expanded-${summaryId}`);
+            
+            if (!shortDiv || !expandedDiv) {
+                console.error('Summary elements not found for ID:', summaryId);
+                return;
+            }
+            
+            if (shortDiv.style.display === 'none') {
+                // Collapsing - hide expanded, show short
+                shortDiv.style.display = 'block';
+                expandedDiv.style.display = 'none';
+                // Remove from expanded states
+                if (typeof window.expandedStates !== 'undefined') {
+                    delete window.expandedStates[summaryId];
+                }
+            } else {
+                // Expanding - hide short, show expanded
+                shortDiv.style.display = 'none';
+                expandedDiv.style.display = 'block';
+                // Add to expanded states
+                if (typeof window.expandedStates === 'undefined') {
+                    window.expandedStates = {};
+                }
+                window.expandedStates[summaryId] = true;
+            }
+        }
+
+        // Legacy function for backward compatibility
+        function toggleSummary(index) {
+            toggleSummaryById(index);
+        }
 
 // Edit name functionality
 function editName(index) {

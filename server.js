@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const csv = require('csv-parser');
 const axios = require('axios');
-const sqlite3 = require('sqlite3').verbose(); // NEW: Import SQLite
+const { Pool } = require('pg'); // PostgreSQL connection pool
 require('dotenv').config();
 
 // Create uploads directory if it doesn't exist
@@ -16,84 +16,116 @@ if (!fs.existsSync(uploadsDir)) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// NEW: Database setup
-const dbPath = './calls.db';
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('❌ Error opening database:', err.message);
-    } else {
-        console.log('📀 Connected to SQLite database:', dbPath);
-        initializeDatabase();
-    }
+// NEW: PostgreSQL Database setup
+// Railway automatically provides DATABASE_URL when PostgreSQL is linked to your service
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-// NEW: Initialize database tables
-function initializeDatabase() {
-    // TEMPORARY: Reset database with correct schema
-    db.run(`DROP TABLE IF EXISTS calls`, (dropErr) => {
-        if (!dropErr) console.log('🗑️ Reset database table');
-        
-        // Create calls table with recording_url column and retry tracking columns
-        db.run(`
-            CREATE TABLE IF NOT EXISTS calls (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                contact_name TEXT NOT NULL,
-                contact_phone TEXT NOT NULL,
-                contact_address TEXT,
-                call_id TEXT,
-                status TEXT DEFAULT 'scheduled',
-                scheduled_time TEXT,
-                scheduled_time_local TEXT,
-                ended_reason TEXT,
-                call_outcome TEXT,
-                duration REAL,
-                cost REAL,
-                success_evaluation TEXT,
-                structured_data TEXT,
-                summary TEXT,
-                recording_url TEXT,
-                actual_call_time TEXT,
-                message TEXT,
-                timestamp TEXT,
-                campaign_id TEXT,
-                index_position INTEGER,
-                outcome_received INTEGER DEFAULT 0,
-                is_retry INTEGER DEFAULT 0,
-                original_call_id TEXT,
-                retry_count INTEGER DEFAULT 0
-            )
-        `, (err) => {
-            if (err) {
-                console.error('❌ Error creating calls table:', err.message);
-            } else {
-                console.log('✅ Database table initialized with recording_url and retry tracking columns');
-                // Add new columns to existing table if they don't exist (for migration)
-                addRetryColumnsIfNotExist();
-            }
+// Test connection and initialize database
+pool.connect()
+    .then(client => {
+        console.log('✅ Connected to PostgreSQL database');
+        client.release();
+        initializeDatabase().catch(err => {
+            console.error('❌ Error initializing database:', err);
         });
+    })
+    .catch(err => {
+        console.error('❌ Error acquiring database client:', err.message);
+        console.error('⚠️ Make sure DATABASE_URL is set in Railway environment variables');
+        console.error('⚠️ If deploying to Railway, make sure PostgreSQL service is linked to your app');
     });
+
+// NEW: Initialize database tables (PostgreSQL)
+async function initializeDatabase() {
+    try {
+        // Check if table exists
+        const tableCheck = await pool.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'calls'
+            )
+        `);
+        
+        if (tableCheck.rows[0].exists) {
+            // Table exists - just run migrations to add any missing columns
+            console.log('✅ Database table already exists - running migrations');
+            await addRetryColumnsIfNotExist();
+        } else {
+            // Table doesn't exist - create it
+            console.log('📋 Creating new calls table');
+            await pool.query(`
+                CREATE TABLE calls (
+                    id SERIAL PRIMARY KEY,
+                    contact_name VARCHAR(255) NOT NULL,
+                    contact_phone VARCHAR(50) NOT NULL,
+                    contact_address TEXT,
+                    call_id VARCHAR(255),
+                    status VARCHAR(50) DEFAULT 'scheduled',
+                    scheduled_time TIMESTAMP,
+                    scheduled_time_local VARCHAR(50),
+                    ended_reason VARCHAR(255),
+                    call_outcome VARCHAR(255),
+                    duration NUMERIC(10, 2),
+                    cost NUMERIC(10, 4),
+                    success_evaluation VARCHAR(50),
+                    structured_data JSONB,
+                    summary TEXT,
+                    recording_url TEXT,
+                    actual_call_time VARCHAR(50),
+                    message TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    campaign_id VARCHAR(255),
+                    index_position INTEGER,
+                    outcome_received BOOLEAN DEFAULT FALSE,
+                    is_retry BOOLEAN DEFAULT FALSE,
+                    original_call_id VARCHAR(255),
+                    retry_count INTEGER DEFAULT 0
+                )
+            `);
+            console.log('✅ Database table created with all columns');
+            await addRetryColumnsIfNotExist();
+        }
+    } catch (err) {
+        console.error('❌ Error initializing database:', err.message);
+    }
 }
 
 // NEW: Add retry columns to existing database (migration helper)
-function addRetryColumnsIfNotExist() {
-    // Check if columns exist and add them if they don't
-    db.run(`ALTER TABLE calls ADD COLUMN is_retry INTEGER DEFAULT 0`, (err) => {
-        if (err && !err.message.includes('duplicate column')) {
-            console.error('❌ Error adding is_retry column:', err.message);
-        }
-    });
+async function addRetryColumnsIfNotExist() {
+    const columns = [
+        { name: 'is_retry', type: 'BOOLEAN DEFAULT FALSE' },
+        { name: 'original_call_id', type: 'VARCHAR(255)' },
+        { name: 'retry_count', type: 'INTEGER DEFAULT 0' },
+        { name: 'recording_url', type: 'TEXT' },
+        { name: 'structured_data', type: 'JSONB' }
+    ];
     
-    db.run(`ALTER TABLE calls ADD COLUMN original_call_id TEXT`, (err) => {
-        if (err && !err.message.includes('duplicate column')) {
-            console.error('❌ Error adding original_call_id column:', err.message);
+    for (const column of columns) {
+        try {
+            // Check if column exists
+            const columnCheck = await pool.query(`
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'calls' 
+                    AND column_name = $1
+                )
+            `, [column.name]);
+            
+            if (!columnCheck.rows[0].exists) {
+                await pool.query(`ALTER TABLE calls ADD COLUMN ${column.name} ${column.type}`);
+                console.log(`✅ Added column: ${column.name}`);
+            }
+        } catch (err) {
+            if (!err.message.includes('duplicate') && !err.message.includes('already exists')) {
+                console.error(`❌ Error adding column ${column.name}:`, err.message);
+            }
         }
-    });
-    
-    db.run(`ALTER TABLE calls ADD COLUMN retry_count INTEGER DEFAULT 0`, (err) => {
-        if (err && !err.message.includes('duplicate column')) {
-            console.error('❌ Error adding retry_count column:', err.message);
-        }
-    });
+    }
 }
 
 
@@ -116,84 +148,86 @@ const CALL_SYSTEM = {
     currentCampaignId: null // NEW: Track current campaign
 };
 
-// NEW: Database helper functions
+// NEW: Database helper functions (PostgreSQL)
 const DB_HELPERS = {
     // Save a call to database (supports retry calls)
-    saveCall: (callData, callback) => {
-        const stmt = db.prepare(`
-            INSERT INTO calls (
-                contact_name, contact_phone, contact_address, call_id, status,
-                scheduled_time, scheduled_time_local, message, timestamp,
-                campaign_id, index_position, is_retry, original_call_id, retry_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        
-        stmt.run([
-            callData.contact.name,
-            formatPhoneNumber(callData.contact.phone),  // ← ADD formatPhoneNumber HERE
-            callData.contact.address || '',
-            callData.callId || null,
-            callData.status,
-            callData.scheduledTime || null,
-            callData.scheduledTimeLocal || null,
-            callData.message || '',
-            callData.timestamp,
-            callData.campaignId || CALL_SYSTEM.currentCampaignId,
-            callData.index !== undefined ? callData.index : null,
-            callData.isRetry ? 1 : 0,
-            callData.originalCallId || null,
-            callData.retryCount || 0
-        ], function(err) {
-            if (callback) callback(err, this.lastID);
-        });
-        
-        stmt.finalize();
+    saveCall: async (callData, callback) => {
+        try {
+            const result = await pool.query(`
+                INSERT INTO calls (
+                    contact_name, contact_phone, contact_address, call_id, status,
+                    scheduled_time, scheduled_time_local, message, timestamp,
+                    campaign_id, index_position, is_retry, original_call_id, retry_count
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                RETURNING id
+            `, [
+                callData.contact.name,
+                formatPhoneNumber(callData.contact.phone),
+                callData.contact.address || '',
+                callData.callId || null,
+                callData.status,
+                callData.scheduledTime || null,
+                callData.scheduledTimeLocal || null,
+                callData.message || '',
+                callData.timestamp || new Date().toISOString(),
+                callData.campaignId || CALL_SYSTEM.currentCampaignId,
+                callData.index !== undefined ? callData.index : null,
+                callData.isRetry || false,
+                callData.originalCallId || null,
+                callData.retryCount || 0
+            ]);
+            
+            if (callback) callback(null, result.rows[0].id);
+        } catch (err) {
+            console.error('❌ Error saving call:', err);
+            if (callback) callback(err, null);
+        }
     },
     
     // Update call with outcome data
-    updateCallOutcome: (callId, outcomeData, callback) => {
-        const stmt = db.prepare(`
-            UPDATE calls SET 
-                ended_reason = ?, call_outcome = ?, duration = ?, cost = ?,
-                success_evaluation = ?, structured_data = ?, summary = ?,
-                actual_call_time = ?, status = ?, outcome_received = 1,
-                message = ?, recording_url = ?
-            WHERE call_id = ?
-        `);
-        
-        stmt.run([
-            outcomeData.endedReason,
-            outcomeData.callOutcome,
-            outcomeData.duration,
-            outcomeData.cost,
-            outcomeData.successEvaluation,
-            JSON.stringify(outcomeData.structuredData),
-            outcomeData.summary,
-            outcomeData.actualCallTime,
-            'completed',
-            outcomeData.message,
-            outcomeData.recordingUrl,  // ← ADD THIS LINE
-            callId
-        ], callback);
-        
-        stmt.finalize();
+    updateCallOutcome: async (callId, outcomeData, callback) => {
+        try {
+            await pool.query(`
+                UPDATE calls SET 
+                    ended_reason = $1, call_outcome = $2, duration = $3, cost = $4,
+                    success_evaluation = $5, structured_data = $6, summary = $7,
+                    actual_call_time = $8, status = $9, outcome_received = $10,
+                    message = $11, recording_url = $12
+                WHERE call_id = $13
+            `, [
+                outcomeData.endedReason,
+                outcomeData.callOutcome,
+                outcomeData.duration,
+                outcomeData.cost,
+                outcomeData.successEvaluation,
+                outcomeData.structuredData ? JSON.stringify(outcomeData.structuredData) : null,
+                outcomeData.summary,
+                outcomeData.actualCallTime,
+                'completed',
+                true, // outcome_received
+                outcomeData.message,
+                outcomeData.recordingUrl,
+                callId
+            ]);
+            
+            if (callback) callback(null);
+        } catch (err) {
+            console.error('❌ Error updating call outcome:', err);
+            if (callback) callback(err);
+        }
     },
     
     // Get all calls for current campaign
-    getCurrentCalls: (callback) => {
-        db.all(`
-            SELECT * FROM calls 
-            WHERE campaign_id = ? 
-            ORDER BY index_position
-        `, [CALL_SYSTEM.currentCampaignId], (err, rows) => {
-            if (err) {
-                console.error('❌ Error fetching calls:', err);
-                callback(err, []);
-                return;
-            }
+    getCurrentCalls: async (callback) => {
+        try {
+            const result = await pool.query(`
+                SELECT * FROM calls 
+                WHERE campaign_id = $1 
+                ORDER BY index_position NULLS LAST
+            `, [CALL_SYSTEM.currentCampaignId]);
             
             // Convert database rows back to our format
-            const calls = rows.map(row => ({
+            const calls = result.rows.map(row => ({
                 contact: {
                     name: row.contact_name,
                     phone: row.contact_phone,
@@ -201,130 +235,129 @@ const DB_HELPERS = {
                 },
                 callId: row.call_id,
                 status: row.status,
-                scheduledTime: row.scheduled_time,
+                scheduledTime: row.scheduled_time ? row.scheduled_time.toISOString() : null,
                 scheduledTimeLocal: row.scheduled_time_local,
                 endedReason: row.ended_reason,
                 callOutcome: row.call_outcome,
-                duration: row.duration,
-                cost: row.cost,
+                duration: row.duration ? parseFloat(row.duration) : null,
+                cost: row.cost ? parseFloat(row.cost) : null,
                 successEvaluation: row.success_evaluation,
-                structuredData: row.structured_data ? JSON.parse(row.structured_data) : null,
-                summary: row.summary,
-                recordingUrl: row.recording_url,  // ← ADD THIS LINE
-                actualCallTime: row.actual_call_time,
-                message: row.message,
-                timestamp: row.timestamp,
-                index: row.index_position,
-                outcomeReceived: row.outcome_received === 1,
-                success: row.success_evaluation === 'Pass',
-                isRetry: row.is_retry === 1,
-                originalCallId: row.original_call_id,
-                retryCount: row.retry_count || 0
-            }));
-            
-            callback(null, calls);
-        });
-    },
-    
-    // Get all calls for a specific campaign ID
-    getCallsForCampaign: (campaignId, callback) => {
-        db.all(`
-            SELECT * FROM calls 
-            WHERE campaign_id = ? 
-            ORDER BY index_position
-        `, [campaignId], (err, rows) => {
-            if (err) {
-                console.error('❌ Error fetching calls for campaign:', err);
-                callback(err, []);
-                return;
-            }
-            
-            // Convert database rows back to our format
-            const calls = rows.map(row => ({
-                contact: {
-                    name: row.contact_name,
-                    phone: row.contact_phone,
-                    address: row.contact_address
-                },
-                callId: row.call_id,
-                status: row.status,
-                scheduledTime: row.scheduled_time,
-                scheduledTimeLocal: row.scheduled_time_local,
-                endedReason: row.ended_reason,
-                callOutcome: row.call_outcome,
-                duration: row.duration,
-                cost: row.cost,
-                successEvaluation: row.success_evaluation,
-                structuredData: row.structured_data ? JSON.parse(row.structured_data) : null,
+                structuredData: row.structured_data || null,
                 summary: row.summary,
                 recordingUrl: row.recording_url,
                 actualCallTime: row.actual_call_time,
                 message: row.message,
-                timestamp: row.timestamp,
+                timestamp: row.timestamp ? row.timestamp.toISOString() : null,
                 index: row.index_position,
-                outcomeReceived: row.outcome_received === 1,
+                outcomeReceived: row.outcome_received || false,
                 success: row.success_evaluation === 'Pass',
-                isRetry: row.is_retry === 1,
+                isRetry: row.is_retry || false,
                 originalCallId: row.original_call_id,
                 retryCount: row.retry_count || 0
             }));
             
             callback(null, calls);
-        });
+        } catch (err) {
+            console.error('❌ Error fetching calls:', err);
+            callback(err, []);
+        }
+    },
+    
+    // Get all calls for a specific campaign ID
+    getCallsForCampaign: async (campaignId, callback) => {
+        try {
+            const result = await pool.query(`
+                SELECT * FROM calls 
+                WHERE campaign_id = $1 
+                ORDER BY index_position NULLS LAST
+            `, [campaignId]);
+            
+            // Convert database rows back to our format
+            const calls = result.rows.map(row => ({
+                contact: {
+                    name: row.contact_name,
+                    phone: row.contact_phone,
+                    address: row.contact_address
+                },
+                callId: row.call_id,
+                status: row.status,
+                scheduledTime: row.scheduled_time ? row.scheduled_time.toISOString() : null,
+                scheduledTimeLocal: row.scheduled_time_local,
+                endedReason: row.ended_reason,
+                callOutcome: row.call_outcome,
+                duration: row.duration ? parseFloat(row.duration) : null,
+                cost: row.cost ? parseFloat(row.cost) : null,
+                successEvaluation: row.success_evaluation,
+                structuredData: row.structured_data || null,
+                summary: row.summary,
+                recordingUrl: row.recording_url,
+                actualCallTime: row.actual_call_time,
+                message: row.message,
+                timestamp: row.timestamp ? row.timestamp.toISOString() : null,
+                index: row.index_position,
+                outcomeReceived: row.outcome_received || false,
+                success: row.success_evaluation === 'Pass',
+                isRetry: row.is_retry || false,
+                originalCallId: row.original_call_id,
+                retryCount: row.retry_count || 0
+            }));
+            
+            callback(null, calls);
+        } catch (err) {
+            console.error('❌ Error fetching calls for campaign:', err);
+            callback(err, []);
+        }
     },
     
     // Get all campaigns with metadata
-    getAllCampaigns: (callback) => {
-        db.all(`
-            SELECT 
-                campaign_id,
-                COUNT(*) as call_count,
-                MIN(timestamp) as created_at,
-                MAX(timestamp) as last_updated,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
-                SUM(CASE WHEN success_evaluation = 'Pass' THEN 1 ELSE 0 END) as successful_count
-            FROM calls
-            WHERE campaign_id IS NOT NULL
-            GROUP BY campaign_id
-            ORDER BY created_at DESC
-        `, [], (err, rows) => {
-            if (err) {
-                console.error('❌ Error fetching campaigns:', err);
-                callback(err, []);
-                return;
-            }
+    getAllCampaigns: async (callback) => {
+        try {
+            const result = await pool.query(`
+                SELECT 
+                    campaign_id,
+                    COUNT(*) as call_count,
+                    MIN(timestamp) as created_at,
+                    MAX(timestamp) as last_updated,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+                    SUM(CASE WHEN success_evaluation = 'Pass' THEN 1 ELSE 0 END) as successful_count
+                FROM calls
+                WHERE campaign_id IS NOT NULL
+                GROUP BY campaign_id
+                ORDER BY created_at DESC
+            `);
             
-            const campaigns = rows.map(row => ({
+            const campaigns = result.rows.map(row => ({
                 campaignId: row.campaign_id,
-                callCount: row.call_count,
-                createdAt: row.created_at,
-                lastUpdated: row.last_updated,
-                completedCount: row.completed_count,
-                successfulCount: row.successful_count
+                callCount: parseInt(row.call_count),
+                createdAt: row.created_at ? row.created_at.toISOString() : null,
+                lastUpdated: row.last_updated ? row.last_updated.toISOString() : null,
+                completedCount: parseInt(row.completed_count) || 0,
+                successfulCount: parseInt(row.successful_count) || 0
             }));
             
             callback(null, campaigns);
-        });
+        } catch (err) {
+            console.error('❌ Error fetching campaigns:', err);
+            callback(err, []);
+        }
     },
     
     // Get call by callId (for retry functionality)
-    getCallByCallId: (callId, callback) => {
-        db.get(`
-            SELECT * FROM calls 
-            WHERE call_id = ?
-            ORDER BY timestamp DESC
-            LIMIT 1
-        `, [callId], (err, row) => {
-            if (err) {
-                console.error('❌ Error fetching call by callId:', err);
-                callback(err, null);
-                return;
-            }
+    getCallByCallId: async (callId, callback) => {
+        try {
+            const result = await pool.query(`
+                SELECT * FROM calls 
+                WHERE call_id = $1
+                ORDER BY timestamp DESC
+                LIMIT 1
+            `, [callId]);
             
-            if (!row) {
+            if (result.rows.length === 0) {
                 callback(null, null);
                 return;
             }
+            
+            const row = result.rows[0];
             
             // Convert database row to our format
             const call = {
@@ -336,59 +369,68 @@ const DB_HELPERS = {
                 },
                 callId: row.call_id,
                 status: row.status,
-                scheduledTime: row.scheduled_time,
+                scheduledTime: row.scheduled_time ? row.scheduled_time.toISOString() : null,
                 scheduledTimeLocal: row.scheduled_time_local,
                 endedReason: row.ended_reason,
                 callOutcome: row.call_outcome,
-                duration: row.duration,
-                cost: row.cost,
+                duration: row.duration ? parseFloat(row.duration) : null,
+                cost: row.cost ? parseFloat(row.cost) : null,
                 successEvaluation: row.success_evaluation,
-                structuredData: row.structured_data ? JSON.parse(row.structured_data) : null,
+                structuredData: row.structured_data || null,
                 summary: row.summary,
                 recordingUrl: row.recording_url,
                 actualCallTime: row.actual_call_time,
                 message: row.message,
-                timestamp: row.timestamp,
+                timestamp: row.timestamp ? row.timestamp.toISOString() : null,
                 campaignId: row.campaign_id,
                 index: row.index_position,
-                outcomeReceived: row.outcome_received === 1,
+                outcomeReceived: row.outcome_received || false,
                 success: row.success_evaluation === 'Pass',
-                isRetry: row.is_retry === 1,
+                isRetry: row.is_retry || false,
                 originalCallId: row.original_call_id,
                 retryCount: row.retry_count || 0
             };
             
             callback(null, call);
-        });
+        } catch (err) {
+            console.error('❌ Error fetching call by callId:', err);
+            callback(err, null);
+        }
     },
     
     // Update retry count for original call
-    updateRetryCount: (originalCallId, callback) => {
-        db.run(`
-            UPDATE calls SET retry_count = retry_count + 1
-            WHERE call_id = ?
-        `, [originalCallId], function(err) {
-            if (err) {
-                console.error('❌ Error updating retry count:', err);
-            }
-            if (callback) callback(err, this.changes);
-        });
+    updateRetryCount: async (originalCallId, callback) => {
+        try {
+            const result = await pool.query(`
+                UPDATE calls SET retry_count = retry_count + 1
+                WHERE call_id = $1
+            `, [originalCallId]);
+            
+            if (callback) callback(null, result.rowCount);
+        } catch (err) {
+            console.error('❌ Error updating retry count:', err);
+            if (callback) callback(err, 0);
+        }
     },
     
     // Clear old campaign data (optional - for cleanup)
-    clearOldCampaigns: (daysOld = 7) => {
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - daysOld);
-        
-        db.run(`
-            DELETE FROM calls 
-            WHERE timestamp < ? 
-            AND status IN ('completed', 'cancelled', 'failed')
-        `, [cutoffDate.toISOString()], function(err) {
-            if (!err && this.changes > 0) {
-                console.log(`🧹 Cleaned up ${this.changes} old call records`);
+    clearOldCampaigns: async (daysOld = 7) => {
+        try {
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+            
+            const result = await pool.query(`
+                DELETE FROM calls 
+                WHERE timestamp < $1 
+                AND status IN ('completed', 'cancelled', 'failed')
+            `, [cutoffDate.toISOString()]);
+            
+            if (result.rowCount > 0) {
+                console.log(`🧹 Cleaned up ${result.rowCount} old call records`);
             }
-        });
+        } catch (err) {
+            console.error('❌ Error clearing old campaigns:', err);
+        }
     }
 };
 
@@ -445,36 +487,32 @@ async function makeVAPICall(contact, index) {
         console.log(`🔧 Updating database: phone=${phoneNumber}, campaign=${CALL_SYSTEM.currentCampaignId}, index=${index}, callId=${response.data.id}`);
         
         // Update in database with better error handling
-        await new Promise((resolve, reject) => {
-            db.run(`
+        try {
+            const updateResult = await pool.query(`
                 UPDATE calls SET 
-                    call_id = ?, status = ?, message = ?, timestamp = ?
-                WHERE contact_phone = ? AND campaign_id = ? AND index_position = ?
+                    call_id = $1, status = $2, message = $3, timestamp = $4
+                WHERE contact_phone = $5 AND campaign_id = $6 AND index_position = $7
             `, [
                 response.data.id, 'calling', `Call initiated for ${contact.name}`, new Date().toISOString(),
                 phoneNumber, CALL_SYSTEM.currentCampaignId, index
-            ], function(err) {
-                if (err) {
-                    console.error('❌ Error updating call with call_id:', err);
-                    reject(err);
-                } else {
-                    console.log(`💾 Updated ${this.changes} database records with call_id for ${contact.name}`);
-                    if (this.changes === 0) {
-                        console.log(`⚠️ No database records updated for ${contact.name}`);
-                        console.log(`   Expected: phone=${phoneNumber}, campaign=${CALL_SYSTEM.currentCampaignId}, index=${index}`);
-                        
-                        // Let's see what's actually in the database
-                        db.all(`SELECT contact_phone, campaign_id, index_position FROM calls WHERE campaign_id = ?`, 
-                               [CALL_SYSTEM.currentCampaignId], (err, rows) => {
-                            if (!err) {
-                                console.log('   Database contents:', rows);
-                            }
-                        });
-                    }
-                    resolve();
-                }
-            });
-        });
+            ]);
+            
+            console.log(`💾 Updated ${updateResult.rowCount} database records with call_id for ${contact.name}`);
+            if (updateResult.rowCount === 0) {
+                console.log(`⚠️ No database records updated for ${contact.name}`);
+                console.log(`   Expected: phone=${phoneNumber}, campaign=${CALL_SYSTEM.currentCampaignId}, index=${index}`);
+                
+                // Let's see what's actually in the database
+                const debugResult = await pool.query(`
+                    SELECT contact_phone, campaign_id, index_position FROM calls 
+                    WHERE campaign_id = $1
+                `, [CALL_SYSTEM.currentCampaignId]);
+                console.log('   Database contents:', debugResult.rows);
+            }
+        } catch (err) {
+            console.error('❌ Error updating call with call_id:', err);
+            throw err;
+        }
 
         console.log(`[${index + 1}] ✅ VAPI call successful for ${contact.name}`);
         
@@ -491,20 +529,19 @@ async function makeVAPICall(contact, index) {
     } catch (error) {
         // Update database with error
         const phoneNumber = formatPhoneNumber(contact.phone);
-        db.run(`
-            UPDATE calls SET 
-                status = ?, message = ?
-            WHERE contact_phone = ? AND campaign_id = ? AND index_position = ?
-        `, [
-            'failed', `Failed to call ${contact.name}: ${error.message}`,
-            phoneNumber, CALL_SYSTEM.currentCampaignId, index
-        ], function(updateErr) {
-            if (updateErr) {
-                console.error('❌ Error updating failed call in database:', updateErr);
-            } else {
-                console.log(`💾 Updated ${this.changes} failed call records for ${contact.name}`);
-            }
-        });
+        try {
+            const updateResult = await pool.query(`
+                UPDATE calls SET 
+                    status = $1, message = $2
+                WHERE contact_phone = $3 AND campaign_id = $4 AND index_position = $5
+            `, [
+                'failed', `Failed to call ${contact.name}: ${error.message}`,
+                phoneNumber, CALL_SYSTEM.currentCampaignId, index
+            ]);
+            console.log(`💾 Updated ${updateResult.rowCount} failed call records for ${contact.name}`);
+        } catch (updateErr) {
+            console.error('❌ Error updating failed call in database:', updateErr);
+        }
 
         console.error(`[${index + 1}] ❌ Error making VAPI call for ${contact.name}:`, error.message);
         
@@ -552,13 +589,23 @@ async function makeRetryCall(contact, originalCallId, campaignId, retryCount) {
             }
         });
 
+        // Get current time in Eastern timezone for retry call
+        const now = new Date();
+        // Format time in Eastern timezone directly
+        const easternTimeString = now.toLocaleTimeString("en-US", {
+            timeZone: "America/New_York",
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        
         // Create a new database record for the retry call
         const retryCallData = {
             contact: contact,
             callId: response.data.id,
             status: 'calling',
-            scheduledTime: new Date().toISOString(),
-            scheduledTimeLocal: new Date().toLocaleTimeString(),
+            scheduledTime: now.toISOString(),
+            scheduledTimeLocal: easternTimeString,
             message: `Retry call #${retryCount + 1} initiated for ${contact.name} (voicemail retry)`,
             timestamp: new Date().toISOString(),
             campaignId: campaignId,
@@ -872,15 +919,18 @@ app.get('/status', (req, res) => {
     
     // Original behavior: If no current campaign, try to load the most recent one
     if (!CALL_SYSTEM.currentCampaignId) {
-        db.get(`
+        pool.query(`
             SELECT campaign_id FROM calls 
             ORDER BY timestamp DESC 
             LIMIT 1
-        `, (err, row) => {
-            if (!err && row) {
-                CALL_SYSTEM.currentCampaignId = row.campaign_id;
+        `).then(result => {
+            if (result.rows.length > 0) {
+                CALL_SYSTEM.currentCampaignId = result.rows[0].campaign_id;
                 console.log('🔄 Auto-loaded most recent campaign:', CALL_SYSTEM.currentCampaignId);
             }
+            getCalls();
+        }).catch(err => {
+            console.error('❌ Error loading most recent campaign:', err);
             getCalls();
         });
     } else {
@@ -1010,17 +1060,15 @@ app.post('/cancel-calls', (req, res) => {
         
         // NEW: Update database to mark scheduled calls as cancelled
         if (CALL_SYSTEM.currentCampaignId) {
-            db.run(`
+            pool.query(`
                 UPDATE calls SET 
                     status = 'cancelled', 
                     message = 'Call cancelled by user'
-                WHERE campaign_id = ? AND status = 'scheduled'
-            `, [CALL_SYSTEM.currentCampaignId], function(err) {
-                if (err) {
-                    console.error('❌ Error updating cancelled calls in database:', err);
-                } else {
-                    console.log(`💾 Updated ${this.changes} cancelled calls in database`);
-                }
+                WHERE campaign_id = $1 AND status = 'scheduled'
+            `, [CALL_SYSTEM.currentCampaignId]).then(result => {
+                console.log(`💾 Updated ${result.rowCount} cancelled calls in database`);
+            }).catch(err => {
+                console.error('❌ Error updating cancelled calls in database:', err);
             });
         }
         
@@ -1122,11 +1170,11 @@ app.post('/webhook/call-ended', (req, res) => {
 // NEW: Graceful shutdown to close database
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down server...');
-    db.close((err) => {
+    pool.end((err) => {
         if (err) {
-            console.error('❌ Error closing database:', err.message);
+            console.error('❌ Error closing database pool:', err.message);
         } else {
-            console.log('📀 Database connection closed.');
+            console.log('📀 Database connection pool closed.');
         }
         process.exit(0);
     });
@@ -1153,16 +1201,20 @@ app.post('/update-contact', express.json(), (req, res) => {
     // Format phone number if editing phone
     const finalValue = field === 'phone' ? formatPhoneNumber(value) : value;
     
-    db.run(`
-        UPDATE calls SET ${column} = ?
-        WHERE campaign_id = ? AND index_position = ?
-    `, [finalValue, CALL_SYSTEM.currentCampaignId, index], function(err) {
-        if (err) {
-            console.error('Error updating contact:', err);
-            res.status(500).json({ error: 'Database update failed' });
-        } else {
-            console.log(`✏️ Updated ${field} for contact at index ${index}: ${finalValue}`);
-            res.json({ success: true, updated: this.changes });
-        }
+    // Use parameterized query with column name validation to prevent SQL injection
+    // Only allow updating contact_name and contact_phone columns
+    if (column !== 'contact_name' && column !== 'contact_phone') {
+        return res.status(400).json({ error: 'Invalid field for update' });
+    }
+    
+    pool.query(`
+        UPDATE calls SET ${column} = $1
+        WHERE campaign_id = $2 AND index_position = $3
+    `, [finalValue, CALL_SYSTEM.currentCampaignId, index]).then(result => {
+        console.log(`✏️ Updated ${field} for contact at index ${index}: ${finalValue}`);
+        res.json({ success: true, updated: result.rowCount });
+    }).catch(err => {
+        console.error('Error updating contact:', err);
+        res.status(500).json({ error: 'Database update failed' });
     });
 });
