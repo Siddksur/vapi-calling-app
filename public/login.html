@@ -5,8 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LeadCallr Login</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
         :root {
             color-scheme: light dark;
+            --bg-gradient: radial-gradient(120% 120% at 0% 0%, rgba(13, 79, 124, 0.78) 0%, rgba(16, 42, 67, 0.95) 45%, #091524 100%);
+            --card-bg: rgba(255, 255, 255, 0.92);
+            --card-border: rgba(255, 255, 255, 0.16);
+            --primary: #0d7bff;
+            --primary-accent: #00b4ff;
+            --text-primary: #102a43;
+            --text-secondary: #526481;
         }
         body {
             margin: 0;
@@ -14,28 +23,44 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(135deg, #0d4f7c, #102a43);
-            font-family: Arial, sans-serif;
-            color: #102a43;
+            background: var(--bg-gradient);
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: var(--text-primary);
+            position: relative;
+        }
+        body::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(50% 50% at 85% 15%, rgba(0, 219, 222, 0.16) 0%, rgba(9, 21, 36, 0) 60%),
+                radial-gradient(45% 45% at 15% 10%, rgba(13, 123, 255, 0.18) 0%, rgba(9, 21, 36, 0) 55%);
         }
         .login-card {
-            background: #ffffff;
-            border-radius: 16px;
-            padding: 32px 28px;
-            width: min(360px, 90%);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+            position: relative;
+            background: var(--card-bg);
+            border-radius: 22px;
+            padding: 44px 36px 38px;
+            width: min(420px, 90%);
+            box-shadow: 0 30px 70px rgba(7, 14, 30, 0.28);
+            border: 1px solid var(--card-border);
+            backdrop-filter: blur(12px);
+            z-index: 1;
         }
         .login-card h1 {
-            margin-top: 0;
+            margin-top: 12px;
             margin-bottom: 8px;
-            font-size: 24px;
-            color: #0d4f7c;
+            font-size: 30px;
+            font-weight: 700;
+            color: var(--text-primary);
         }
         .login-card p {
             margin-top: 0;
             margin-bottom: 24px;
-            color: #4a5a6a;
-            font-size: 14px;
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.6;
         }
         .form-group {
             margin-bottom: 18px;
@@ -48,54 +73,68 @@
         }
         input[type="text"],
         input[type="password"] {
-            padding: 12px;
-            border-radius: 8px;
-            border: 1px solid #c7d9ef;
-            font-size: 14px;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(16, 42, 67, 0.18);
+            font-size: 15px;
+            background: rgba(255, 255, 255, 0.92);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
         input[type="text"]:focus,
         input[type="password"]:focus {
             outline: none;
-            border-color: #0d4f7c;
-            box-shadow: 0 0 0 2px rgba(13, 79, 124, 0.12);
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(13, 123, 255, 0.15);
         }
         button {
             width: 100%;
-            padding: 12px;
+            padding: 14px;
             border: none;
-            border-radius: 8px;
-            background-color: #0d4f7c;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-accent));
             color: #ffffff;
-            font-size: 15px;
+            font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            box-shadow: 0 20px 36px rgba(13, 123, 255, 0.35);
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
         }
         button:hover {
             transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(13, 79, 124, 0.25);
+            box-shadow: 0 26px 44px rgba(13, 123, 255, 0.42);
         }
         .error {
-            padding: 12px;
-            border-radius: 8px;
-            background: #fdecea;
-            color: #c0392b;
-            border: 1px solid #f5c6cb;
+            padding: 14px;
+            border-radius: 12px;
+            background: rgba(220, 53, 69, 0.12);
+            color: #9c1f2f;
+            border: 1px solid rgba(220, 53, 69, 0.28);
             margin-bottom: 16px;
             font-size: 13px;
         }
         .footer {
-            margin-top: 24px;
+            margin-top: 28px;
             font-size: 12px;
-            color: #7a8899;
+            color: rgba(82, 100, 129, 0.8);
             text-align: center;
+        }
+        .logo-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .logo-wrap img {
+            height: 54px;
         }
     </style>
 </head>
 <body>
     <div class="login-card">
-        <h1>LeadCallr</h1>
-        <p>Sign in to schedule and monitor your calling campaigns.</p>
+        <div class="logo-wrap">
+            <img src="https://statics.myclickfunnels.com/workspace/JGrmMP/image/16250065/file/6ef0e742dde95ca50252f19c9d65eecd.png" alt="LeadCallr logo">
+        </div>
+        <h1>Welcome back</h1>
+        <p>Sign in to access the LeadCallr command center and orchestrate your AI-driven campaigns.</p>
 
         <div id="errorBox" class="error" style="display:none;">Incorrect username or password. Please try again.</div>
 
