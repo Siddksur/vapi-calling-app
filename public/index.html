@@ -647,6 +647,199 @@
             font-size: 12px;
             color: var(--text-secondary);
         }
+
+        /* Add Lead Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-panel {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            z-index: 1001;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            color: #1a2f4d;
+            font-size: 20px;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 28px;
+            color: #666;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+
+        .modal-close:hover {
+            background: #f0f0f0;
+        }
+
+        .modal-content {
+            padding: 24px;
+        }
+
+        .modal-content .form-row {
+            margin-bottom: 20px;
+        }
+
+        .modal-content .form-row label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #1a2f4d;
+        }
+
+        .modal-content .form-row input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .modal-actions button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .modal-actions .cancel-btn {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .modal-actions .cancel-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .modal-actions .submit-btn {
+            background: #007cba;
+            color: white;
+        }
+
+        .modal-actions .submit-btn:hover {
+            background: #006ba1;
+        }
+
+        /* Action buttons in toolbar */
+        .action-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .retry-btn, .add-lead-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            background: #007cba;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .retry-btn:hover, .add-lead-btn:hover {
+            background: #006ba1;
+        }
+
+        .retry-btn:disabled, .add-lead-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* Table action buttons */
+        .call-btn, .retry-single-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        .call-btn {
+            background: #28a745;
+            color: white;
+        }
+
+        .call-btn:hover {
+            background: #218838;
+        }
+
+        .retry-single-btn {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .retry-single-btn:hover {
+            background: #e0a800;
+        }
+
+        /* Checkbox styling */
+        .call-checkbox {
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+        }
+
+        #selectAllCheckbox {
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+        }
     </style>
 </head>
 <body>
@@ -894,10 +1087,20 @@
                 <button type="button" onclick="filterByStatus('failed')" class="filter-btn status-filter-btn" id="status-filter-failed">Failed</button>
                 <button type="button" onclick="filterByStatus('scheduled')" class="filter-btn status-filter-btn" id="status-filter-scheduled">Scheduled</button>
             </div>
-            <button type="button" class="analytics-btn" onclick="openAnalyticsPanel()">
-                <span>📊</span>
-                <span>Analytics</span>
-            </button>
+            <div class="action-buttons">
+                <button type="button" class="retry-btn" id="retrySelectedBtn" onclick="retrySelectedCalls()" style="display: none; margin-right: 10px;">
+                    <span>🔄</span>
+                    <span>Retry Selected</span>
+                </button>
+                <button type="button" class="add-lead-btn" onclick="openAddLeadModal()" style="margin-right: 10px;">
+                    <span>➕</span>
+                    <span>Add New Lead</span>
+                </button>
+                <button type="button" class="analytics-btn" onclick="openAnalyticsPanel()">
+                    <span>📊</span>
+                    <span>Analytics</span>
+                </button>
+            </div>
         </div>
 
         <div class="filter-buttons outcome-filters" style="margin-bottom: 15px;">
@@ -938,6 +1141,7 @@
             <table class="calls-table">
                 <thead>
                     <tr>
+                        <th style="width: 40px;"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()" title="Select All"></th>
                         <th>#</th>
                         <th>Name</th>
                         <th>Phone</th>
@@ -947,6 +1151,7 @@
                         <th>Summary</th>
                         <th>Recording</th>
                         <th>Details</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="callsTableBody">
@@ -956,6 +1161,35 @@
     </div>
             </div>
         </div>
+
+    <!-- Add Lead Modal -->
+    <div id="addLeadOverlay" class="modal-overlay" onclick="closeAddLeadModal()"></div>
+    <div id="addLeadModal" class="modal-panel" onclick="event.stopPropagation();">
+        <div class="modal-header">
+            <h3>Add New Lead</h3>
+            <button class="modal-close" onclick="closeAddLeadModal()">×</button>
+        </div>
+        <div class="modal-content">
+            <form id="addLeadForm" onsubmit="handleAddLead(event)">
+                <div class="form-row">
+                    <label for="leadName">Name *</label>
+                    <input type="text" id="leadName" name="name" required placeholder="Contact name">
+                </div>
+                <div class="form-row">
+                    <label for="leadPhone">Phone *</label>
+                    <input type="tel" id="leadPhone" name="phone" required placeholder="+1234567890">
+                </div>
+                <div class="form-row">
+                    <label for="leadAddress">Address</label>
+                    <input type="text" id="leadAddress" name="address" placeholder="Contact address (optional)">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="cancel-btn" onclick="closeAddLeadModal()">Cancel</button>
+                    <button type="submit" class="submit-btn">Add Lead</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Analytics Panel -->
     <div id="analyticsOverlay" class="analytics-overlay" onclick="closeAnalyticsPanel()"></div>
@@ -1451,13 +1685,23 @@
                 document.getElementById('progressFill').style.width = `${progress}%`;
                 document.getElementById('progressText').textContent = `${Math.round(progress)}% complete (${data.summary.completed}/${data.summary.total})`;
                 
-                // PRESERVE EDIT STATES AND EXPANDED SUMMARIES
+                // PRESERVE EDIT STATES, EXPANDED SUMMARIES, AND CHECKBOX SELECTIONS
                 const tableBody = document.getElementById('callsTableBody');
                 
                 // Save current edit states and expanded summaries before updating table
                 // Use callId as key for more reliable tracking across updates
                 const editStates = {};
                 const expandedStates = window.expandedStates || {};
+                
+                // Preserve checkbox selections
+                const selectedCallIds = window.selectedCallIds || new Set();
+                document.querySelectorAll('.call-checkbox:checked').forEach(checkbox => {
+                    const callId = parseInt(checkbox.dataset.callId);
+                    if (callId) {
+                        selectedCallIds.add(callId);
+                    }
+                });
+                window.selectedCallIds = selectedCallIds;
                 
                 // Check all existing summary-expanded elements to preserve state
                 const allExpanded = document.querySelectorAll('[id^="summary-expanded-"]');
@@ -1495,8 +1739,12 @@
                     }
                 });
                 
-                // Sort original calls by index
-                originalCalls.sort((a, b) => (a.call.index || 0) - (b.call.index || 0));
+                // Sort original calls by index (nulls last for manual leads)
+                originalCalls.sort((a, b) => {
+                    if (a.call.index === null || a.call.index === undefined) return 1;
+                    if (b.call.index === null || b.call.index === undefined) return -1;
+                    return (a.call.index || 0) - (b.call.index || 0);
+                });
                 
                 // Display calls: original calls first, then their retries
                 let displayIndex = 0;
@@ -1515,6 +1763,17 @@
                         });
                     }
                 });
+                
+                // Restore select all checkbox state
+                const allCheckboxes = document.querySelectorAll('.call-checkbox');
+                const checkedCheckboxes = document.querySelectorAll('.call-checkbox:checked');
+                const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+                if (selectAllCheckbox && allCheckboxes.length > 0) {
+                    selectAllCheckbox.checked = (checkedCheckboxes.length === allCheckboxes.length);
+                }
+                
+                // Update retry button visibility after restoring checkboxes
+                updateRetryButtonVisibility();
                 
                 // Apply active filters
                 applyFilters();
@@ -1679,7 +1938,34 @@
                 recordingDisplay = `<button class="recording-btn" onclick="window.open('${call.recordingUrl}', '_blank')">🎵 Play</button>`;
             }
 
+            // Determine if this is a manual lead (no index) or scheduled call that can be called manually
+            const isManualLead = call.index === null || call.index === undefined;
+            const canCallManually = isManualLead && (call.status === 'scheduled' || call.status === 'failed');
+            const canRetry = (call.status === 'completed' || call.status === 'failed') && !isRetry;
+            
+            // Create checkbox - only show for calls that can be retried or called
+            const dbCallId = call.id;
+            let checkbox = '';
+            if (dbCallId && (canCallManually || canRetry)) {
+                const checkboxId = `call-checkbox-${dbCallId}`;
+                // Check if this call was previously selected
+                const isSelected = window.selectedCallIds && window.selectedCallIds.has(dbCallId);
+                const checkedAttr = isSelected ? 'checked' : '';
+                checkbox = `<input type="checkbox" class="call-checkbox" id="${checkboxId}" data-call-id="${dbCallId}" ${checkedAttr} onchange="updateRetryButtonVisibility()">`;
+            } else {
+                checkbox = ''; // No checkbox for calls that can't be retried/called
+            }
+            
+            // Create actions column
+            let actionsHtml = '-';
+            if (canCallManually && dbCallId) {
+                actionsHtml = `<button class="call-btn" onclick="callLead(${dbCallId})" title="Call this lead">📞 Call</button>`;
+            } else if (canRetry && dbCallId) {
+                actionsHtml = `<button class="retry-single-btn" onclick="retrySingleCall(${dbCallId})" title="Retry this call">🔄 Retry</button>`;
+            }
+            
             row.innerHTML = `
+                <td>${checkbox}</td>
                 <td>${isRetry ? '↪' : displayIndex + 1}</td>
                 <td>${nameDisplay}</td>
                 <td>${call.contact.phone}</td>
@@ -1689,7 +1975,13 @@
                 <td>${summaryDisplay}</td>
                 <td>${recordingDisplay}</td>
                 <td>${detailsDisplay}</td>
+                <td>${actionsHtml}</td>
             `;
+            
+            // Store database ID in row data attribute
+            if (call.id) {
+                row.dataset.dbCallId = call.id;
+            }
             
             return row;
         }
@@ -2070,6 +2362,196 @@
         // Legacy function for backward compatibility
         function toggleSummary(index) {
             toggleSummaryById(index);
+        }
+
+        // Add Lead Modal Functions
+        function openAddLeadModal() {
+            const campaignId = selectedCampaignId || null;
+            if (!campaignId) {
+                alert('Please select a campaign first or upload a CSV to create a campaign.');
+                return;
+            }
+            document.getElementById('addLeadOverlay').style.display = 'block';
+            document.getElementById('addLeadModal').style.display = 'block';
+            document.getElementById('leadName').focus();
+        }
+
+        function closeAddLeadModal() {
+            document.getElementById('addLeadOverlay').style.display = 'none';
+            document.getElementById('addLeadModal').style.display = 'none';
+            document.getElementById('addLeadForm').reset();
+        }
+
+        async function handleAddLead(event) {
+            event.preventDefault();
+            const formData = {
+                name: document.getElementById('leadName').value.trim(),
+                phone: document.getElementById('leadPhone').value.trim(),
+                address: document.getElementById('leadAddress').value.trim(),
+                campaignId: selectedCampaignId
+            };
+
+            if (!formData.name || !formData.phone) {
+                alert('Name and phone are required.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/add-lead', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    closeAddLeadModal();
+                    // Refresh the call status to show the new lead
+                    updateCallStatus();
+                    alert('Lead added successfully!');
+                } else {
+                    alert(data.error || 'Error adding lead');
+                }
+            } catch (error) {
+                console.error('Error adding lead:', error);
+                alert('Error adding lead. Please try again.');
+            }
+        }
+
+        // Call a specific lead
+        async function callLead(dbCallId) {
+            if (!dbCallId) {
+                alert('Invalid call ID');
+                return;
+            }
+
+            if (!confirm('Initiate call for this lead?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/call-lead', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ dbCallId })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Refresh status to show updated call state
+                    updateCallStatus();
+                } else {
+                    alert(data.error || 'Error initiating call');
+                }
+            } catch (error) {
+                console.error('Error calling lead:', error);
+                alert('Error initiating call. Please try again.');
+            }
+        }
+
+        // Retry single call
+        async function retrySingleCall(dbCallId) {
+            if (!dbCallId) {
+                alert('Invalid call ID');
+                return;
+            }
+
+            await retrySelectedCalls([dbCallId]);
+        }
+
+        // Retry selected calls
+        async function retrySelectedCalls(dbCallIds = null) {
+            // If dbCallIds not provided, get from checkboxes
+            if (!dbCallIds) {
+                const checkboxes = document.querySelectorAll('.call-checkbox:checked');
+                dbCallIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.callId)).filter(id => id);
+            }
+
+            if (!dbCallIds || dbCallIds.length === 0) {
+                alert('Please select at least one call to retry.');
+                return;
+            }
+
+            if (!confirm(`Retry ${dbCallIds.length} selected call(s)?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/retry-selected', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ dbCallIds })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Clear selections from both DOM and stored state
+                    document.querySelectorAll('.call-checkbox:checked').forEach(cb => cb.checked = false);
+                    document.getElementById('selectAllCheckbox').checked = false;
+                    if (window.selectedCallIds) {
+                        window.selectedCallIds.clear();
+                    }
+                    updateRetryButtonVisibility();
+                    
+                    // Refresh status to show new retry calls
+                    updateCallStatus();
+                    
+                    alert(data.message || `Retry initiated for ${data.summary.success} call(s).`);
+                } else {
+                    alert(data.error || 'Error retrying calls');
+                }
+            } catch (error) {
+                console.error('Error retrying calls:', error);
+                alert('Error retrying calls. Please try again.');
+            }
+        }
+
+        // Toggle select all checkboxes
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAllCheckbox');
+            const checkboxes = document.querySelectorAll('.call-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = selectAll.checked;
+            });
+            updateRetryButtonVisibility();
+        }
+
+        // Update retry button visibility based on selected calls
+        function updateRetryButtonVisibility() {
+            // Initialize selectedCallIds if it doesn't exist
+            if (!window.selectedCallIds) {
+                window.selectedCallIds = new Set();
+            }
+            
+            // Update the set based on current checkbox states
+            const allCheckboxes = document.querySelectorAll('.call-checkbox');
+            allCheckboxes.forEach(checkbox => {
+                const callId = parseInt(checkbox.dataset.callId);
+                if (callId) {
+                    if (checkbox.checked) {
+                        window.selectedCallIds.add(callId);
+                    } else {
+                        window.selectedCallIds.delete(callId);
+                    }
+                }
+            });
+            
+            const checkedBoxes = document.querySelectorAll('.call-checkbox:checked');
+            const retryBtn = document.getElementById('retrySelectedBtn');
+            if (checkedBoxes.length > 0) {
+                retryBtn.style.display = 'inline-flex';
+            } else {
+                retryBtn.style.display = 'none';
+            }
         }
 
 // Edit name functionality

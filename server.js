@@ -445,13 +445,12 @@ const DB_HELPERS = {
             
             // Convert database rows back to our format
             const calls = result.rows.map(row => ({
+                id: row.id, // Database ID for manual operations
                 contact: {
                     name: row.contact_name,
                     phone: row.contact_phone,
                     address: row.contact_address
                 },
-                assistantId: row.assistant_id,
-                phoneNumberId: row.phone_number_id,
                 assistantId: row.assistant_id,
                 phoneNumberId: row.phone_number_id,
                 callId: row.call_id,
@@ -495,11 +494,14 @@ const DB_HELPERS = {
             
             // Convert database rows back to our format
             const calls = result.rows.map(row => ({
+                id: row.id, // Database ID for manual operations
                 contact: {
                     name: row.contact_name,
                     phone: row.contact_phone,
                     address: row.contact_address
                 },
+                assistantId: row.assistant_id,
+                phoneNumberId: row.phone_number_id,
                 callId: row.call_id,
                 status: row.status,
                 scheduledTime: row.scheduled_time ? row.scheduled_time.toISOString() : null,
@@ -643,6 +645,62 @@ const DB_HELPERS = {
         }
     },
     
+    // Get call by database ID (for manual lead operations)
+    getCallByDatabaseId: async (dbId, callback) => {
+        try {
+            const result = await pool.query(`
+                SELECT * FROM calls 
+                WHERE id = $1
+            `, [dbId]);
+            
+            if (result.rows.length === 0) {
+                callback(null, null);
+                return;
+            }
+            
+            const row = result.rows[0];
+            
+            // Convert database row to our format
+            const call = {
+                id: row.id,
+                contact: {
+                    name: row.contact_name,
+                    phone: row.contact_phone,
+                    address: row.contact_address
+                },
+                assistantId: row.assistant_id,
+                phoneNumberId: row.phone_number_id,
+                callId: row.call_id,
+                status: row.status,
+                scheduledTime: row.scheduled_time ? row.scheduled_time.toISOString() : null,
+                scheduledTimeLocal: row.scheduled_time_local,
+                endedReason: row.ended_reason,
+                callOutcome: row.call_outcome,
+                duration: row.duration ? parseFloat(row.duration) : null,
+                cost: row.cost ? parseFloat(row.cost) : null,
+                successEvaluation: row.success_evaluation,
+                structuredData: row.structured_data || null,
+                summary: row.summary,
+                recordingUrl: row.recording_url,
+                actualCallTime: row.actual_call_time,
+                message: row.message,
+                timestamp: row.timestamp ? row.timestamp.toISOString() : null,
+                campaignId: row.campaign_id,
+                index: row.index_position,
+                outcomeReceived: row.outcome_received || false,
+                success: row.success_evaluation === 'Pass',
+                isRetry: row.is_retry || false,
+                originalCallId: row.original_call_id,
+                retryCount: row.retry_count || 0
+            };
+            
+            callback(null, call);
+        } catch (err) {
+            console.error('❌ Error fetching call by database ID:', err);
+            callback(err, null);
+        }
+    },
+    
     // Update retry count for original call
     updateRetryCount: async (originalCallId, callback) => {
         try {
@@ -699,7 +757,8 @@ function formatPhoneNumber(phone) {
 }
 
 // UPDATED: Function to make VAPI call with database integration
-async function makeVAPICall(contact, index, campaignId = CALL_SYSTEM.currentCampaignId, assistantId, phoneNumberId) {
+// Supports both index-based calls (CSV) and database ID-based calls (manual)
+async function makeVAPICall(contact, index, campaignId = CALL_SYSTEM.currentCampaignId, assistantId, phoneNumberId, dbCallId = null) {
     const effectiveAssistantId = assistantId || CALL_SYSTEM.currentAssistantId || VAPI_CONFIG.assistantId;
     const effectivePhoneNumberId = phoneNumberId || CALL_SYSTEM.currentPhoneNumberId || VAPI_CONFIG.phoneNumberId;
     const effectiveCampaignId = campaignId || CALL_SYSTEM.currentCampaignId;
@@ -723,7 +782,8 @@ async function makeVAPICall(contact, index, campaignId = CALL_SYSTEM.currentCamp
             }
         };
 
-        console.log(`[${index + 1}] 📞 Making VAPI call for: ${contact.name} ${formattedPhoneNumber}`);
+        const callLabel = dbCallId ? `[DB ID: ${dbCallId}]` : `[${index !== null ? index + 1 : 'Manual'}]`;
+        console.log(`${callLabel} 📞 Making VAPI call for: ${contact.name} ${formattedPhoneNumber}`);
 
         const response = await axios.post(`${VAPI_CONFIG.baseUrl}/call`, callData, {
             headers: {
@@ -732,50 +792,70 @@ async function makeVAPICall(contact, index, campaignId = CALL_SYSTEM.currentCamp
             }
         });
 
-        // NEW: Update database with call ID - FIXED VERSION
-        console.log(`🔧 Updating database: phone=${formattedPhoneNumber}, campaign=${effectiveCampaignId}, index=${index}, callId=${response.data.id}`);
+        // Update database with call ID - supports both index-based and ID-based updates
+        console.log(`🔧 Updating database: phone=${formattedPhoneNumber}, campaign=${effectiveCampaignId}, index=${index}, dbCallId=${dbCallId}, callId=${response.data.id}`);
         
-        // Update in database with better error handling
         try {
-            const updateResult = await pool.query(`
-                UPDATE calls SET 
-                    call_id = $1,
-                    status = $2,
-                    message = $3,
-                    timestamp = $4,
-                    assistant_id = COALESCE(assistant_id, $5),
-                    phone_number_id = COALESCE(phone_number_id, $6)
-                WHERE contact_phone = $7 AND campaign_id = $8 AND index_position = $9
-            `, [
-                response.data.id,
-                'calling',
-                `Call initiated for ${contact.name}`,
-                new Date().toISOString(),
-                effectiveAssistantId,
-                effectivePhoneNumberId,
-                formattedPhoneNumber,
-                effectiveCampaignId,
-                index
-            ]);
+            let updateResult;
+            if (dbCallId) {
+                // Update by database ID (for manual leads)
+                updateResult = await pool.query(`
+                    UPDATE calls SET 
+                        call_id = $1,
+                        status = $2,
+                        message = $3,
+                        timestamp = $4,
+                        assistant_id = COALESCE(assistant_id, $5),
+                        phone_number_id = COALESCE(phone_number_id, $6)
+                    WHERE id = $7
+                `, [
+                    response.data.id,
+                    'calling',
+                    `Call initiated for ${contact.name}`,
+                    new Date().toISOString(),
+                    effectiveAssistantId,
+                    effectivePhoneNumberId,
+                    dbCallId
+                ]);
+            } else {
+                // Update by index_position (for CSV calls)
+                updateResult = await pool.query(`
+                    UPDATE calls SET 
+                        call_id = $1,
+                        status = $2,
+                        message = $3,
+                        timestamp = $4,
+                        assistant_id = COALESCE(assistant_id, $5),
+                        phone_number_id = COALESCE(phone_number_id, $6)
+                    WHERE contact_phone = $7 AND campaign_id = $8 AND index_position = $9
+                `, [
+                    response.data.id,
+                    'calling',
+                    `Call initiated for ${contact.name}`,
+                    new Date().toISOString(),
+                    effectiveAssistantId,
+                    effectivePhoneNumberId,
+                    formattedPhoneNumber,
+                    effectiveCampaignId,
+                    index
+                ]);
+            }
             
             console.log(`💾 Updated ${updateResult.rowCount} database records with call_id for ${contact.name}`);
             if (updateResult.rowCount === 0) {
                 console.log(`⚠️ No database records updated for ${contact.name}`);
-                console.log(`   Expected: phone=${formattedPhoneNumber}, campaign=${effectiveCampaignId}, index=${index}`);
-                
-                // Let's see what's actually in the database
-                const debugResult = await pool.query(`
-                    SELECT contact_phone, campaign_id, index_position FROM calls 
-                    WHERE campaign_id = $1
-                `, [effectiveCampaignId]);
-                console.log('   Database contents:', debugResult.rows);
+                if (dbCallId) {
+                    console.log(`   Expected: dbCallId=${dbCallId}`);
+                } else {
+                    console.log(`   Expected: phone=${formattedPhoneNumber}, campaign=${effectiveCampaignId}, index=${index}`);
+                }
             }
         } catch (err) {
             console.error('❌ Error updating call with call_id:', err);
             throw err;
         }
 
-        console.log(`[${index + 1}] ✅ VAPI call successful for ${contact.name}`);
+        console.log(`${callLabel} ✅ VAPI call successful for ${contact.name}`);
         
         return {
             success: true,
@@ -784,31 +864,49 @@ async function makeVAPICall(contact, index, campaignId = CALL_SYSTEM.currentCamp
             message: `Call initiated for ${contact.name}`,
             timestamp: new Date().toISOString(),
             index: index,
+            dbCallId: dbCallId,
             status: 'calling'
         };
 
     } catch (error) {
-        // Update database with error
+        // Update database with error - supports both update methods
         const phoneNumber = formattedPhoneNumber;
         try {
-            const updateResult = await pool.query(`
-                UPDATE calls SET 
-                    status = $1,
-                    message = $2,
-                    assistant_id = COALESCE(assistant_id, $3),
-                    phone_number_id = COALESCE(phone_number_id, $4)
-                WHERE contact_phone = $5 AND campaign_id = $6 AND index_position = $7
-            `, [
-                'failed', `Failed to call ${contact.name}: ${error.message}`,
-                effectiveAssistantId, effectivePhoneNumberId,
-                phoneNumber, effectiveCampaignId, index
-            ]);
+            let updateResult;
+            if (dbCallId) {
+                updateResult = await pool.query(`
+                    UPDATE calls SET 
+                        status = $1,
+                        message = $2,
+                        assistant_id = COALESCE(assistant_id, $3),
+                        phone_number_id = COALESCE(phone_number_id, $4)
+                    WHERE id = $5
+                `, [
+                    'failed', `Failed to call ${contact.name}: ${error.message}`,
+                    effectiveAssistantId, effectivePhoneNumberId,
+                    dbCallId
+                ]);
+            } else {
+                updateResult = await pool.query(`
+                    UPDATE calls SET 
+                        status = $1,
+                        message = $2,
+                        assistant_id = COALESCE(assistant_id, $3),
+                        phone_number_id = COALESCE(phone_number_id, $4)
+                    WHERE contact_phone = $5 AND campaign_id = $6 AND index_position = $7
+                `, [
+                    'failed', `Failed to call ${contact.name}: ${error.message}`,
+                    effectiveAssistantId, effectivePhoneNumberId,
+                    phoneNumber, effectiveCampaignId, index
+                ]);
+            }
             console.log(`💾 Updated ${updateResult.rowCount} failed call records for ${contact.name}`);
         } catch (updateErr) {
             console.error('❌ Error updating failed call in database:', updateErr);
         }
 
-        console.error(`[${index + 1}] ❌ Error making VAPI call for ${contact.name}:`, error.message);
+        const callLabel = dbCallId ? `[DB ID: ${dbCallId}]` : `[${index !== null ? index + 1 : 'Manual'}]`;
+        console.error(`${callLabel} ❌ Error making VAPI call for ${contact.name}:`, error.message);
         
         return {
             success: false,
@@ -817,6 +915,7 @@ async function makeVAPICall(contact, index, campaignId = CALL_SYSTEM.currentCamp
             message: `Failed to call ${contact.name}: ${error.message}`,
             timestamp: new Date().toISOString(),
             index: index,
+            dbCallId: dbCallId,
             status: 'failed'
         };
     } finally {
@@ -1703,6 +1802,232 @@ app.post('/cancel-calls', (req, res) => {
     } catch (error) {
         console.error('Error cancelling calls:', error);
         res.status(500).json({ error: 'Error cancelling calls' });
+    }
+});
+
+// NEW: Add new lead to campaign endpoint
+app.post('/api/add-lead', express.json(), async (req, res) => {
+    try {
+        const { name, phone, address, campaignId } = req.body;
+        
+        if (!name || !phone) {
+            return res.status(400).json({ error: 'Name and phone are required' });
+        }
+        
+        const effectiveCampaignId = campaignId || CALL_SYSTEM.currentCampaignId;
+        if (!effectiveCampaignId) {
+            return res.status(400).json({ error: 'No active campaign. Please create a campaign first by uploading a CSV.' });
+        }
+        
+        // Get campaign metadata to get assistant and phone number IDs
+        const campaignMeta = await DB_HELPERS.getCampaignById(effectiveCampaignId);
+        if (!campaignMeta) {
+            return res.status(404).json({ error: 'Campaign not found' });
+        }
+        
+        const formattedPhone = formatPhoneNumber(phone);
+        
+        // Create call record with index_position = NULL (manual lead)
+        const callData = {
+            contact: {
+                name: name.trim(),
+                phone: formattedPhone,
+                address: address || ''
+            },
+            status: 'scheduled',
+            message: 'Manually added lead',
+            timestamp: new Date().toISOString(),
+            campaignId: effectiveCampaignId,
+            index: null, // Manual leads don't have index
+            assistantId: campaignMeta.assistant_id,
+            phoneNumberId: campaignMeta.phone_number_id
+        };
+        
+        DB_HELPERS.saveCall(callData, async (err, dbId) => {
+            if (err) {
+                console.error('❌ Error saving new lead:', err);
+                return res.status(500).json({ error: 'Error saving lead to database' });
+            }
+            
+            console.log(`✅ Added new lead to campaign ${effectiveCampaignId}: ${name} (${formattedPhone})`);
+            
+            res.json({
+                success: true,
+                message: 'Lead added successfully',
+                lead: {
+                    id: dbId,
+                    name: callData.contact.name,
+                    phone: callData.contact.phone,
+                    address: callData.contact.address,
+                    campaignId: effectiveCampaignId
+                }
+            });
+        });
+        
+    } catch (error) {
+        console.error('❌ Error adding new lead:', error);
+        res.status(500).json({ error: 'Error adding lead' });
+    }
+});
+
+// NEW: Call a specific lead by database ID
+app.post('/api/call-lead', express.json(), async (req, res) => {
+    try {
+        const { dbCallId } = req.body;
+        
+        if (!dbCallId) {
+            return res.status(400).json({ error: 'Database call ID is required' });
+        }
+        
+        // Get call details from database
+        DB_HELPERS.getCallByDatabaseId(dbCallId, async (err, call) => {
+            if (err || !call) {
+                console.error('❌ Error fetching call:', err);
+                return res.status(404).json({ error: 'Call not found' });
+            }
+            
+            // Check if call is already in progress
+            if (call.status === 'calling' || call.status === 'completed') {
+                return res.status(400).json({ error: `Call is already ${call.status}` });
+            }
+            
+            // Make the call
+            try {
+                const result = await makeVAPICall(
+                    call.contact,
+                    call.index, // May be null for manual leads
+                    call.campaignId,
+                    call.assistantId,
+                    call.phoneNumberId,
+                    dbCallId // Pass database ID for update
+                );
+                
+                if (result.success) {
+                    res.json({
+                        success: true,
+                        message: `Call initiated for ${call.contact.name}`,
+                        callId: result.callId
+                    });
+                } else {
+                    res.status(500).json({
+                        error: result.error || 'Failed to initiate call'
+                    });
+                }
+            } catch (callError) {
+                console.error('❌ Error making call:', callError);
+                res.status(500).json({ error: 'Error initiating call' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Error calling lead:', error);
+        res.status(500).json({ error: 'Error calling lead' });
+    }
+});
+
+// NEW: Retry selected calls
+app.post('/api/retry-selected', express.json(), async (req, res) => {
+    try {
+        const { dbCallIds } = req.body;
+        
+        if (!dbCallIds || !Array.isArray(dbCallIds) || dbCallIds.length === 0) {
+            return res.status(400).json({ error: 'Array of database call IDs is required' });
+        }
+        
+        const results = [];
+        
+        // Process each selected call using Promise.all for parallel processing
+        const retryPromises = dbCallIds.map(dbCallId => {
+            return new Promise((resolve) => {
+                // Get call details
+                DB_HELPERS.getCallByDatabaseId(dbCallId, async (err, call) => {
+                    if (err || !call) {
+                        console.error(`❌ Error fetching call ${dbCallId}:`, err);
+                        resolve({ dbCallId, success: false, error: 'Call not found' });
+                        return;
+                    }
+                    
+                    // For manual leads that haven't been called yet, just call them directly
+                    if (!call.callId && call.status === 'scheduled') {
+                        // This is a manual lead that hasn't been called - call it directly
+                        try {
+                            await makeVAPICall(
+                                call.contact,
+                                call.index,
+                                call.campaignId,
+                                call.assistantId,
+                                call.phoneNumberId,
+                                dbCallId
+                            );
+                            resolve({
+                                dbCallId,
+                                success: true,
+                                contactName: call.contact.name
+                            });
+                        } catch (callError) {
+                            console.error(`❌ Error calling manual lead ${dbCallId}:`, callError);
+                            resolve({
+                                dbCallId,
+                                success: false,
+                                error: callError.message
+                            });
+                        }
+                        return;
+                    }
+                    
+                    // Determine original call ID for retry tracking
+                    const originalCallId = call.callId || call.originalCallId;
+                    const retryCount = call.retryCount || 0;
+                    
+                    // Create retry call using existing retry function
+                    try {
+                        await makeRetryCall(
+                            call.contact,
+                            originalCallId || `db-${dbCallId}`, // Use database ID if no call_id
+                            call.campaignId,
+                            retryCount,
+                            call.assistantId,
+                            call.phoneNumberId
+                        );
+                        
+                        resolve({
+                            dbCallId,
+                            success: true,
+                            contactName: call.contact.name
+                        });
+                    } catch (retryError) {
+                        console.error(`❌ Error retrying call ${dbCallId}:`, retryError);
+                        resolve({
+                            dbCallId,
+                            success: false,
+                            error: retryError.message
+                        });
+                    }
+                });
+            });
+        });
+        
+        // Wait for all retries to complete
+        const retryResults = await Promise.all(retryPromises);
+        results.push(...retryResults);
+        
+        const successCount = results.filter(r => r.success).length;
+        const failCount = results.filter(r => !r.success).length;
+        
+        res.json({
+            success: true,
+            message: `Retry initiated for ${successCount} call(s). ${failCount} failed.`,
+            results: results,
+            summary: {
+                total: dbCallIds.length,
+                success: successCount,
+                failed: failCount
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Error retrying selected calls:', error);
+        res.status(500).json({ error: 'Error retrying calls' });
     }
 });
 
