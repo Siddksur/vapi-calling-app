@@ -573,10 +573,16 @@
             font-weight: 700;
             color: #0d7bff;
         }
+        .calls-table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            margin-top: 20px;
+        }
         .calls-table {
             width: 100%;
+            min-width: 920px;
             border-collapse: collapse;
-            margin-top: 20px;
         }
         .calls-table th, .calls-table td {
             padding: 12px;
@@ -928,23 +934,25 @@
         </div>
         <p id="progressText">0% complete</p>
         
-        <table class="calls-table">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Phone</th>
-                    <th>Status</th>
-                    <th>Scheduled Time</th>
-                    <th>Outcome</th>
-                    <th>Summary</th>
-                    <th>Recording</th>
-                    <th>Details</th>
-                </tr>
-            </thead>
-            <tbody id="callsTableBody">
-            </tbody>
-        </table>
+        <div class="calls-table-wrapper">
+            <table class="calls-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Status</th>
+                        <th>Scheduled Time</th>
+                        <th>Outcome</th>
+                        <th>Summary</th>
+                        <th>Recording</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="callsTableBody">
+                </tbody>
+            </table>
+        </div>
     </div>
             </div>
         </div>
