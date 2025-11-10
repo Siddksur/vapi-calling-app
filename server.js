@@ -667,6 +667,7 @@ function formatPhoneNumber(phone) {
 async function makeVAPICall(contact, index, campaignId = CALL_SYSTEM.currentCampaignId, assistantId, phoneNumberId) {
     const effectiveAssistantId = assistantId || CALL_SYSTEM.currentAssistantId || VAPI_CONFIG.assistantId;
     const effectivePhoneNumberId = phoneNumberId || CALL_SYSTEM.currentPhoneNumberId || VAPI_CONFIG.phoneNumberId;
+    const effectiveCampaignId = campaignId || CALL_SYSTEM.currentCampaignId;
     const formattedPhoneNumber = formatPhoneNumber(contact.phone);
 
     try {
