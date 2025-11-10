@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LeadCallr AI Calling App</title>
+    <title>LeadCallr AI App</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -45,9 +45,9 @@
         .app-shell {
             position: relative;
             z-index: 1;
-            max-width: 1250px;
+            max-width: 1440px;
             margin: 0 auto;
-            padding: 50px 28px 88px;
+            padding: 40px 32px 88px;
         }
 
         .glass-card {
@@ -655,16 +655,16 @@
         <div class="top-bar glass-card">
             <div class="brand">
                 <img src="https://statics.myclickfunnels.com/workspace/JGrmMP/image/16250065/file/6ef0e742dde95ca50252f19c9d65eecd.png" alt="LeadCallr logo">
-                <span class="tagline">AI Calling Command Center</span>
+                <span class="tagline">Sidd Sur's Workspace</span>
             </div>
             <button id="logoutBtn" class="logout-button">Log Out</button>
         </div>
         <section class="intro-card glass-card">
-            <h1>LeadCallr AI Calling App</h1>
+            <h1>LeadCallr AI App</h1>
             <p>Upload a CSV file with contacts (Name, Phone, Address), define your calling window, and orchestrate campaigns powered by AI assistants.</p>
             <div class="intro-meta">
                 <img src="https://statics.myclickfunnels.com/workspace/JGrmMP/image/16250088/file/f56b74313c1d6a8f3c0774060784aa1d.png" alt="LeadCallr emblem">
-                <span>Future-ready outbound automation</span>
+                <span>Outbound automation with AI</span>
             </div>
         </section>
 
@@ -1636,7 +1636,7 @@
                 let details = [];
                 if (call.endedReason) details.push(`Reason: ${call.endedReason}`);
                 if (call.duration) details.push(`Duration: ${Math.round(call.duration)}s`);
-                if (call.cost) details.push(`Cost: $${call.cost.toFixed(4)}`);
+                // intentionally omit cost from display
                 
                 if (details.length > 0) {
                     detailsDisplay = details.join(' | ');
