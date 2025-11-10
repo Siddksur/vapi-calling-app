@@ -21,6 +21,14 @@ const LOGIN_USERNAME = process.env.APP_LOGIN_USERNAME;
 const LOGIN_PASSWORD = process.env.APP_LOGIN_PASSWORD;
 const SESSION_SECRET = process.env.APP_SESSION_SECRET;
 
+const normalizeSecret = (value) => {
+    if (value === undefined || value === null) return '';
+    return String(value).trim();
+};
+
+const EXPECTED_USERNAME = normalizeSecret(LOGIN_USERNAME);
+const EXPECTED_PASSWORD = normalizeSecret(LOGIN_PASSWORD);
+
 if (!SESSION_SECRET) {
     console.warn('⚠️ APP_SESSION_SECRET is not set. Using an insecure fallback value. Set this env var in production.');
 }
@@ -1249,9 +1257,12 @@ app.get('/login', (req, res) => {
 app.post('/login', (req, res) => {
     const { username, password, redirect } = req.body || {};
 
-    if (LOGIN_USERNAME && LOGIN_PASSWORD &&
-        username === LOGIN_USERNAME &&
-        password === LOGIN_PASSWORD) {
+    const suppliedUsername = normalizeSecret(username);
+    const suppliedPassword = normalizeSecret(password);
+
+    if (EXPECTED_USERNAME && EXPECTED_PASSWORD &&
+        suppliedUsername === EXPECTED_USERNAME &&
+        suppliedPassword === EXPECTED_PASSWORD) {
         req.session.isAuthenticated = true;
         req.session.username = LOGIN_USERNAME;
         req.session.loginAt = Date.now();
