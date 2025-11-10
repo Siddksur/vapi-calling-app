@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "add-assistant": "node scripts/addAssistant.js",
+    "add-phone": "node scripts/addPhoneNumber.js",
+    "list-resources": "node scripts/listResources.js"
   },
   "keywords": [],
   "author": "",

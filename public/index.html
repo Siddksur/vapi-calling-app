@@ -110,6 +110,33 @@
             transition: opacity 0.2s ease;
             z-index: 998;
         }
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .form-row label {
+            font-weight: 600;
+            color: #0d4f7c;
+        }
+        .form-row select {
+            padding: 8px;
+            border: 1px solid #c7d9ef;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .form-row select:disabled {
+            background: #f0f4f9;
+            color: #6c7a8e;
+        }
+        .helper-text {
+            font-size: 12px;
+            color: #6c7a8e;
+        }
+        .helper-text.error {
+            color: #c0392b;
+        }
         .analytics-overlay.open {
             opacity: 1;
             visibility: visible;
@@ -538,6 +565,22 @@
     
     <div class="upload-container">
         <form id="uploadForm" enctype="multipart/form-data">
+                <div class="form-row">
+                    <label for="assistantSelect">Select AI Assistant</label>
+                    <select id="assistantSelect" required>
+                        <option value="">Loading assistants...</option>
+                    </select>
+                    <small id="assistantHelpText" class="helper-text">Choose which AI agent will handle this campaign.</small>
+                </div>
+
+                <div class="form-row">
+                    <label for="phoneNumberSelect">Select Caller ID (Phone Number)</label>
+                    <select id="phoneNumberSelect" required>
+                        <option value="">Loading phone numbers...</option>
+                    </select>
+                    <small id="phoneHelpText" class="helper-text">Pick the phone number callers will see.</small>
+                </div>
+
             <input type="file" id="csvFile" name="csvFile" accept=".csv" required>
             <br><br>
             <button type="submit" id="submitBtn">Upload and Schedule Calls</button>
@@ -686,13 +729,156 @@
         let currentOutcomeFilter = 'all';
         let analyticsAnswerChart = null;
         let analyticsOutcomeChart = null;
+        let availableAssistants = [];
+        let availablePhoneNumbers = [];
         
         // Check for existing campaigns on page load
-        window.addEventListener('load', function() {
+        window.addEventListener('load', async function() {
             console.log('🔄 Page loaded, checking for existing campaigns...');
-            loadCampaignsAndStatus();
+            await loadCallResources();
+            await loadCampaignsAndStatus();
         });
         
+        function setHelperText(id, message, isError = false) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = message;
+            if (isError) {
+                el.classList.add('error');
+            } else {
+                el.classList.remove('error');
+            }
+        }
+
+        async function loadCallResources() {
+            const assistantSelect = document.getElementById('assistantSelect');
+            const phoneNumberSelect = document.getElementById('phoneNumberSelect');
+            const submitBtn = document.getElementById('submitBtn');
+
+            if (!assistantSelect || !phoneNumberSelect) {
+                return;
+            }
+
+            assistantSelect.disabled = true;
+            phoneNumberSelect.disabled = true;
+
+            setHelperText('assistantHelpText', 'Loading assistants...');
+            setHelperText('phoneHelpText', 'Loading phone numbers...');
+
+            const previousAssistant = assistantSelect.value;
+            const previousPhone = phoneNumberSelect.value;
+
+            assistantSelect.innerHTML = '<option value="">Loading assistants...</option>';
+            phoneNumberSelect.innerHTML = '<option value="">Loading phone numbers...</option>';
+
+            try {
+                const response = await fetch('/api/resources');
+                if (!response.ok) {
+                    throw new Error(`Server responded with ${response.status}`);
+                }
+
+                const data = await response.json();
+                availableAssistants = Array.isArray(data.assistants) ? data.assistants : [];
+                availablePhoneNumbers = Array.isArray(data.phoneNumbers) ? data.phoneNumbers : [];
+
+                populateAssistantDropdown(availableAssistants, previousAssistant);
+                populatePhoneNumberDropdown(availablePhoneNumbers, previousPhone);
+
+                const hasAssistants = availableAssistants.length > 0;
+                const hasPhoneNumbers = availablePhoneNumbers.length > 0;
+
+                assistantSelect.disabled = !hasAssistants;
+                phoneNumberSelect.disabled = !hasPhoneNumbers;
+
+                if (hasAssistants) {
+                    setHelperText('assistantHelpText', 'Choose which AI agent will handle this campaign.');
+                } else {
+                    setHelperText('assistantHelpText', 'No assistants found yet. Run the helper script to add one.', true);
+                }
+
+                if (hasPhoneNumbers) {
+                    setHelperText('phoneHelpText', 'Pick the phone number callers will see.');
+                } else {
+                    setHelperText('phoneHelpText', 'No phone numbers found yet. Run the helper script to add one.', true);
+                }
+
+                if (submitBtn) {
+                    submitBtn.disabled = !(hasAssistants && hasPhoneNumbers);
+                    submitBtn.title = submitBtn.disabled
+                        ? 'Add an assistant and phone number before scheduling calls.'
+                        : '';
+                }
+
+            } catch (error) {
+                console.error('Error loading assistants/phone numbers:', error);
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.title = 'Unable to load required data. Refresh the page and try again.';
+                }
+                assistantSelect.innerHTML = '<option value="">Unable to load assistants</option>';
+                phoneNumberSelect.innerHTML = '<option value="">Unable to load phone numbers</option>';
+                setHelperText('assistantHelpText', 'Unable to load assistants. Please refresh and try again.', true);
+                setHelperText('phoneHelpText', 'Unable to load phone numbers. Please refresh and try again.', true);
+            }
+        }
+
+        function populateAssistantDropdown(assistants, selectedValue = '') {
+            const select = document.getElementById('assistantSelect');
+            if (!select) return;
+
+            select.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = assistants.length > 0 ? 'Select an assistant...' : 'No assistants available';
+            placeholder.disabled = assistants.length > 0;
+            placeholder.selected = true;
+            select.appendChild(placeholder);
+
+            assistants.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.id;
+                option.textContent = item.name || item.id;
+                select.appendChild(option);
+            });
+
+            if (selectedValue && assistants.some(item => item.id === selectedValue)) {
+                select.value = selectedValue;
+                placeholder.selected = false;
+            } else if (assistants.length === 1) {
+                select.value = assistants[0].id;
+                placeholder.selected = false;
+            }
+        }
+
+        function populatePhoneNumberDropdown(phoneNumbers, selectedValue = '') {
+            const select = document.getElementById('phoneNumberSelect');
+            if (!select) return;
+
+            select.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = phoneNumbers.length > 0 ? 'Select a phone number...' : 'No phone numbers available';
+            placeholder.disabled = phoneNumbers.length > 0;
+            placeholder.selected = true;
+            select.appendChild(placeholder);
+
+            phoneNumbers.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.id;
+                const label = item.displayName || item.phoneNumber || item.id;
+                option.textContent = label;
+                select.appendChild(option);
+            });
+
+            if (selectedValue && phoneNumbers.some(item => item.id === selectedValue)) {
+                select.value = selectedValue;
+                placeholder.selected = false;
+            } else if (phoneNumbers.length === 1) {
+                select.value = phoneNumbers[0].id;
+                placeholder.selected = false;
+            }
+        }
+
         // NEW: Load all campaigns and populate dropdown
         async function loadCampaigns() {
             try {
@@ -727,11 +913,19 @@
                 option.value = campaign.campaignId;
                 
                 // Format the date for display
-                const date = new Date(campaign.createdAt);
-                const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                let dateStr = 'Date unknown';
+                if (campaign.createdAt) {
+                    const date = new Date(campaign.createdAt);
+                    if (!isNaN(date.getTime())) {
+                        dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    }
+                }
+                
+                const assistantLabel = campaign.assistantName || 'Assistant not set';
+                const phoneLabel = campaign.phoneNumberName || 'Number not set';
                 
                 // Create a nice display label
-                option.textContent = `${campaign.campaignId} - ${campaign.callCount} calls (${dateStr})`;
+                option.textContent = `${campaign.campaignId} • ${assistantLabel} • ${phoneLabel} (${dateStr})`;
                 option.setAttribute('data-campaign', JSON.stringify(campaign));
                 selector.appendChild(option);
             });
@@ -754,10 +948,19 @@
             const infoDiv = document.getElementById('campaignInfo');
             
             if (campaign) {
-                const date = new Date(campaign.createdAt);
-                const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                let dateStr = 'Date unknown';
+                if (campaign.createdAt) {
+                    const date = new Date(campaign.createdAt);
+                    if (!isNaN(date.getTime())) {
+                        dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    }
+                }
+                const assistantLabel = campaign.assistantName || 'Not recorded';
+                const phoneLabel = campaign.phoneNumberName || 'Not recorded';
                 infoDiv.innerHTML = `
                     <strong>Campaign Info:</strong> 
+                    Assistant: ${assistantLabel} | 
+                    Caller ID: ${phoneLabel}<br>
                     ${campaign.callCount} total calls | 
                     ${campaign.completedCount || 0} completed | 
                     ${campaign.successfulCount || 0} successful | 
@@ -1212,6 +1415,10 @@
             const statusContainer = document.getElementById('statusContainer');
             const startTime = document.getElementById('startTime').value;
             const endTime = document.getElementById('endTime').value;
+            const assistantSelect = document.getElementById('assistantSelect');
+            const phoneNumberSelect = document.getElementById('phoneNumberSelect');
+            const selectedAssistantId = assistantSelect ? assistantSelect.value : '';
+            const selectedPhoneNumberId = phoneNumberSelect ? phoneNumberSelect.value : '';
             
             if (!fileInput.files[0]) {
                 resultDiv.innerHTML = '<div class="error">Please select a CSV file.</div>';
@@ -1220,6 +1427,18 @@
             
             if (!updateTimeInfo()) {
                 resultDiv.innerHTML = '<div class="error">Please set a valid time window.</div>';
+                return;
+            }
+
+            if (!selectedAssistantId) {
+                resultDiv.innerHTML = '<div class="error">Please choose which AI assistant should handle this campaign.</div>';
+                if (assistantSelect) assistantSelect.focus();
+                return;
+            }
+
+            if (!selectedPhoneNumberId) {
+                resultDiv.innerHTML = '<div class="error">Please pick the phone number callers should see.</div>';
+                if (phoneNumberSelect) phoneNumberSelect.focus();
                 return;
             }
             
@@ -1233,6 +1452,8 @@
             formData.append('csvFile', fileInput.files[0]);
             formData.append('startTime', startTime);
             formData.append('endTime', endTime);
+            formData.append('assistantId', selectedAssistantId);
+            formData.append('phoneNumberId', selectedPhoneNumberId);
             
             try {
                 const response = await fetch('/upload', {
@@ -1248,6 +1469,8 @@
                             <strong>${result.message}</strong><br>
                             Scheduled ${result.totalContacts} calls between ${startTime} and ${endTime}<br>
                             Calling window: ${result.windowHours} hours, ${result.intervalMinutes} minutes between calls<br>
+                            Assistant: ${result.assistant ? result.assistant.name : 'Unknown'}<br>
+                            Caller ID: ${result.phoneNumber ? (result.phoneNumber.displayName || result.phoneNumber.phoneNumber) : 'Unknown'}<br>
                             Campaign ID: ${result.campaignId}
                         </div>
                     `;
