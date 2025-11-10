@@ -149,26 +149,157 @@
 
         .dashboard-layout {
             display: grid;
-            grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+            grid-template-columns: 380px 1fr;
             gap: 28px;
             align-items: start;
+            transition: grid-template-columns 0.3s ease;
         }
 
-        .left-column {
+        .dashboard-layout.sidebar-collapsed {
+            grid-template-columns: 80px 1fr;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            position: sticky;
+            top: 20px;
+            height: fit-content;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            background: transparent;
+            transition: width 0.3s ease;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(16, 42, 67, 0.14);
+            border-radius: 14px;
+            backdrop-filter: blur(10px);
+            position: relative;
+        }
+
+        .sidebar-toggle {
+            background: rgba(0, 124, 186, 0.1);
+            border: 1px solid rgba(0, 124, 186, 0.2);
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 18px;
+            color: #007cba;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(0, 124, 186, 0.2);
+            transform: scale(1.05);
+        }
+
+        .sidebar-title {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a2f4d;
+            white-space: nowrap;
+            overflow: hidden;
+            transition: opacity 0.3s ease;
+        }
+
+        .sidebar-content {
             display: flex;
             flex-direction: column;
             gap: 28px;
+            transition: opacity 0.3s ease;
         }
+
+        /* Collapsed Sidebar Styles */
+        .sidebar.sidebar-collapsed .sidebar-header {
+            flex-direction: column;
+            padding: 12px 8px;
+            align-items: center;
+        }
+
+        .sidebar.sidebar-collapsed .sidebar-title {
+            display: none;
+        }
+
+        .sidebar.sidebar-collapsed .sidebar-content {
+            opacity: 0;
+            pointer-events: none;
+            height: 0;
+            overflow: hidden;
+        }
+
+        .sidebar.sidebar-collapsed .time-settings,
+        .sidebar.sidebar-collapsed .upload-container,
+        .sidebar.sidebar-collapsed #result {
+            display: none;
+        }
+
+        /* Icon-only view for collapsed sidebar - show icons as tooltips on hover */
+        .sidebar.sidebar-collapsed .sidebar-header {
+            cursor: pointer;
+        }
+
+        .sidebar.sidebar-collapsed .sidebar-toggle {
+            margin-bottom: 12px;
+        }
+
+        /* Tooltip for collapsed sidebar */
+        .sidebar.sidebar-collapsed .sidebar-header[title]::after {
+            content: attr(title);
+            position: absolute;
+            left: 100%;
+            top: 50%;
+            transform: translateY(-50%);
+            margin-left: 12px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+        }
+
+        .sidebar.sidebar-collapsed .sidebar-header:hover::after {
+            opacity: 1;
+        }
+
+        /* Section subtitle is already handled above */
 
         .right-column {
             display: flex;
             flex-direction: column;
             gap: 28px;
+            min-width: 0; /* Allows flex item to shrink below content size */
+        }
+
+        .main-content {
+            width: 100%;
         }
 
         @media (max-width: 1120px) {
             .dashboard-layout {
-                grid-template-columns: 1fr;
+                grid-template-columns: 1fr !important;
+            }
+            
+            .sidebar {
+                position: relative;
+                top: 0;
+                max-height: none;
+            }
+
+            .sidebar.sidebar-collapsed {
+                display: none;
             }
         }
 
@@ -178,9 +309,24 @@
 
         .section-title {
             display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: flex-start;
+            margin-bottom: 20px;
+            gap: 4px;
+        }
+        
+        /* Dashboard section title keeps horizontal layout */
+        .status-container .section-title {
+            flex-direction: row;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 22px;
+        }
+        
+        /* Sidebar section titles use vertical layout */
+        .sidebar .section-title {
+            flex-direction: column;
+            align-items: flex-start;
         }
 
         .section-title h3 {
@@ -190,9 +336,22 @@
             color: #102a43;
         }
 
-        .section-title span {
+        .section-title span:not(.section-subtitle) {
             font-size: 13px;
             color: var(--text-secondary);
+        }
+        
+        .section-title .section-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: block;
+            margin-top: 4px;
+            width: 100%;
+        }
+        
+        /* Hide subtitle when sidebar is collapsed */
+        .sidebar.sidebar-collapsed .section-subtitle {
+            display: none !important;
         }
 
         .summary-short {
@@ -862,207 +1021,217 @@
         </section>
 
         <div class="dashboard-layout">
-            <div class="left-column">
-    <div class="time-settings glass-card panel-card">
-        <div class="section-title">
-            <h3>📅 Calling Schedule</h3>
-            <span>Define your daily window</span>
-        </div>
-        <div class="time-row">
-            <div class="time-group">
-                <label for="startTime">Start Time:</label>
-                <select id="startTime" name="startTime">
-                    <option value="06:00">6:00 AM</option>
-                    <option value="06:15">6:15 AM</option>
-                    <option value="06:30">6:30 AM</option>
-                    <option value="06:45">6:45 AM</option>
-                    <option value="07:00">7:00 AM</option>
-                    <option value="07:15">7:15 AM</option>
-                    <option value="07:30">7:30 AM</option>
-                    <option value="07:45">7:45 AM</option>
-                    <option value="08:00">8:00 AM</option>
-                    <option value="08:15">8:15 AM</option>
-                    <option value="08:30">8:30 AM</option>
-                    <option value="08:45">8:45 AM</option>
-                    <option value="09:00">9:00 AM</option>
-                    <option value="09:15">9:15 AM</option>
-                    <option value="09:30">9:30 AM</option>
-                    <option value="09:45">9:45 AM</option>
-                    <option value="10:00">10:00 AM</option>
-                    <option value="10:15">10:15 AM</option>
-                    <option value="10:30">10:30 AM</option>
-                    <option value="10:45">10:45 AM</option>
-                    <option value="11:00">11:00 AM</option>
-                    <option value="11:15">11:15 AM</option>
-                    <option value="11:30">11:30 AM</option>
-                    <option value="11:45">11:45 AM</option>
-                    <option value="12:00">12:00 PM</option>
-                    <option value="12:15">12:15 PM</option>
-                    <option value="12:30">12:30 PM</option>
-                    <option value="12:45">12:45 PM</option>
-                    <option value="13:00">1:00 PM</option>
-                    <option value="13:15">1:15 PM</option>
-                    <option value="13:30" selected>1:30 PM</option>
-                    <option value="13:45">1:45 PM</option>
-                    <option value="14:00">2:00 PM</option>
-                    <option value="14:15">2:15 PM</option>
-                    <option value="14:30">2:30 PM</option>
-                    <option value="14:45">2:45 PM</option>
-                    <option value="15:00">3:00 PM</option>
-                    <option value="15:15">3:15 PM</option>
-                    <option value="15:30">3:30 PM</option>
-                    <option value="15:45">3:45 PM</option>
-                    <option value="16:00">4:00 PM</option>
-                    <option value="16:15">4:15 PM</option>
-                    <option value="16:30">4:30 PM</option>
-                    <option value="16:45">4:45 PM</option>
-                    <option value="17:00">5:00 PM</option>
-                    <option value="17:15">5:15 PM</option>
-                    <option value="17:30">5:30 PM</option>
-                    <option value="17:45">5:45 PM</option>
-                    <option value="18:00">6:00 PM</option>
-                    <option value="18:15">6:15 PM</option>
-                    <option value="18:30">6:30 PM</option>
-                    <option value="18:45">6:45 PM</option>
-                    <option value="19:00">7:00 PM</option>
-                    <option value="19:15">7:15 PM</option>
-                    <option value="19:30">7:30 PM</option>
-                    <option value="19:45">7:45 PM</option>
-                    <option value="20:00">8:00 PM</option>
-                    <option value="20:15">8:15 PM</option>
-                    <option value="20:30">8:30 PM</option>
-                    <option value="20:45">8:45 PM</option>
-                    <option value="21:00">9:00 PM</option>
-                    <option value="21:15">9:15 PM</option>
-                    <option value="21:30">9:30 PM</option>
-                    <option value="21:45">9:45 PM</option>
-                    <option value="22:00">10:00 PM</option>
-                    <option value="22:15">10:15 PM</option>
-                    <option value="22:30">10:30 PM</option>
-                    <option value="22:45">10:45 PM</option>
-                    <option value="23:00">11:00 PM</option>
-                    <option value="23:15">11:15 PM</option>
-                    <option value="23:30">11:30 PM</option>
-                    <option value="23:45">11:45 PM</option>
-                    
+            <!-- Collapsible Sidebar -->
+            <aside id="sidebar" class="sidebar sidebar-expanded">
+                <div class="sidebar-header" title="Campaign Tools - Click to expand">
+                    <button id="sidebarToggle" class="sidebar-toggle" onclick="event.stopPropagation(); toggleSidebar();" title="Toggle Sidebar">
+                        <span class="sidebar-toggle-icon">☰</span>
+                    </button>
+                    <h2 class="sidebar-title">Campaign Tools</h2>
+                </div>
+                <div class="sidebar-content">
+                    <div class="time-settings glass-card panel-card">
+                        <div class="section-title">
+                            <h3>📅 Calling Schedule</h3>
+                            <span class="section-subtitle">Define your daily window</span>
+                        </div>
+                        <div class="time-row">
+                            <div class="time-group">
+                                <label for="startTime">Start Time:</label>
+                                <select id="startTime" name="startTime">
+                                    <option value="06:00">6:00 AM</option>
+                                    <option value="06:15">6:15 AM</option>
+                                    <option value="06:30">6:30 AM</option>
+                                    <option value="06:45">6:45 AM</option>
+                                    <option value="07:00">7:00 AM</option>
+                                    <option value="07:15">7:15 AM</option>
+                                    <option value="07:30">7:30 AM</option>
+                                    <option value="07:45">7:45 AM</option>
+                                    <option value="08:00">8:00 AM</option>
+                                    <option value="08:15">8:15 AM</option>
+                                    <option value="08:30">8:30 AM</option>
+                                    <option value="08:45">8:45 AM</option>
+                                    <option value="09:00">9:00 AM</option>
+                                    <option value="09:15">9:15 AM</option>
+                                    <option value="09:30">9:30 AM</option>
+                                    <option value="09:45">9:45 AM</option>
+                                    <option value="10:00">10:00 AM</option>
+                                    <option value="10:15">10:15 AM</option>
+                                    <option value="10:30">10:30 AM</option>
+                                    <option value="10:45">10:45 AM</option>
+                                    <option value="11:00">11:00 AM</option>
+                                    <option value="11:15">11:15 AM</option>
+                                    <option value="11:30">11:30 AM</option>
+                                    <option value="11:45">11:45 AM</option>
+                                    <option value="12:00">12:00 PM</option>
+                                    <option value="12:15">12:15 PM</option>
+                                    <option value="12:30">12:30 PM</option>
+                                    <option value="12:45">12:45 PM</option>
+                                    <option value="13:00">1:00 PM</option>
+                                    <option value="13:15">1:15 PM</option>
+                                    <option value="13:30" selected>1:30 PM</option>
+                                    <option value="13:45">1:45 PM</option>
+                                    <option value="14:00">2:00 PM</option>
+                                    <option value="14:15">2:15 PM</option>
+                                    <option value="14:30">2:30 PM</option>
+                                    <option value="14:45">2:45 PM</option>
+                                    <option value="15:00">3:00 PM</option>
+                                    <option value="15:15">3:15 PM</option>
+                                    <option value="15:30">3:30 PM</option>
+                                    <option value="15:45">3:45 PM</option>
+                                    <option value="16:00">4:00 PM</option>
+                                    <option value="16:15">4:15 PM</option>
+                                    <option value="16:30">4:30 PM</option>
+                                    <option value="16:45">4:45 PM</option>
+                                    <option value="17:00">5:00 PM</option>
+                                    <option value="17:15">5:15 PM</option>
+                                    <option value="17:30">5:30 PM</option>
+                                    <option value="17:45">5:45 PM</option>
+                                    <option value="18:00">6:00 PM</option>
+                                    <option value="18:15">6:15 PM</option>
+                                    <option value="18:30">6:30 PM</option>
+                                    <option value="18:45">6:45 PM</option>
+                                    <option value="19:00">7:00 PM</option>
+                                    <option value="19:15">7:15 PM</option>
+                                    <option value="19:30">7:30 PM</option>
+                                    <option value="19:45">7:45 PM</option>
+                                    <option value="20:00">8:00 PM</option>
+                                    <option value="20:15">8:15 PM</option>
+                                    <option value="20:30">8:30 PM</option>
+                                    <option value="20:45">8:45 PM</option>
+                                    <option value="21:00">9:00 PM</option>
+                                    <option value="21:15">9:15 PM</option>
+                                    <option value="21:30">9:30 PM</option>
+                                    <option value="21:45">9:45 PM</option>
+                                    <option value="22:00">10:00 PM</option>
+                                    <option value="22:15">10:15 PM</option>
+                                    <option value="22:30">10:30 PM</option>
+                                    <option value="22:45">10:45 PM</option>
+                                    <option value="23:00">11:00 PM</option>
+                                    <option value="23:15">11:15 PM</option>
+                                    <option value="23:30">11:30 PM</option>
+                                    <option value="23:45">11:45 PM</option>
+                                    
                 </select>
             </div>
             
             <div class="time-group">
                 <label for="endTime">End Time:</label>
                 <select id="endTime" name="endTime">
-                    <option value="07:00">7:00 AM</option>
-                    <option value="07:15">7:15 AM</option>
-                    <option value="07:30">7:30 AM</option>
-                    <option value="07:45">7:45 AM</option>
-                    <option value="08:00">8:00 AM</option>
-                    <option value="08:15">8:15 AM</option>
-                    <option value="08:30">8:30 AM</option>
-                    <option value="08:45">8:45 AM</option>
-                    <option value="09:00">9:00 AM</option>
-                    <option value="09:15">9:15 AM</option>
-                    <option value="09:30">9:30 AM</option>
-                    <option value="09:45">9:45 AM</option>
-                    <option value="10:00">10:00 AM</option>
-                    <option value="10:15">10:15 AM</option>
-                    <option value="10:30">10:30 AM</option>
-                    <option value="10:45">10:45 AM</option>
-                    <option value="11:00">11:00 AM</option>
-                    <option value="11:15">11:15 AM</option>
-                    <option value="11:30">11:30 AM</option>
-                    <option value="11:45">11:45 AM</option>
-                    <option value="12:00">12:00 PM</option>
-                    <option value="12:15">12:15 PM</option>
-                    <option value="12:30">12:30 PM</option>
-                    <option value="12:45">12:45 PM</option>
-                    <option value="13:00">1:00 PM</option>
-                    <option value="13:15">1:15 PM</option>
-                    <option value="13:30">1:30 PM</option>
-                    <option value="13:45">1:45 PM</option>
-                    <option value="14:00">2:00 PM</option>
-                    <option value="14:15">2:15 PM</option>
-                    <option value="14:30">2:30 PM</option>
-                    <option value="14:45">2:45 PM</option>
-                    <option value="15:00">3:00 PM</option>
-                    <option value="15:15">3:15 PM</option>
-                    <option value="15:30">3:30 PM</option>
-                    <option value="15:45">3:45 PM</option>
-                    <option value="16:00">4:00 PM</option>
-                    <option value="16:15">4:15 PM</option>
-                    <option value="16:30">4:30 PM</option>
-                    <option value="16:45">4:45 PM</option>
-                    <option value="17:00">5:00 PM</option>
-                    <option value="17:15">5:15 PM</option>
-                    <option value="17:30">5:30 PM</option>
-                    <option value="17:45">5:45 PM</option>
-                    <option value="18:00">6:00 PM</option>
-                    <option value="18:15">6:15 PM</option>
-                    <option value="18:30">6:30 PM</option>
-                    <option value="18:45">6:45 PM</option>
-                    <option value="19:00">7:00 PM</option>
-                    <option value="19:15">7:15 PM</option>
-                    <option value="19:30">7:30 PM</option>
-                    <option value="19:45">7:45 PM</option>
-                    <option value="20:00">8:00 PM</option>
-                    <option value="20:15">8:15 PM</option>
-                    <option value="20:30">8:30 PM</option>
-                    <option value="20:45">8:45 PM</option>
-                    <option value="21:00">9:00 PM</option>
-                    <option value="21:15">9:15 PM</option>
-                    <option value="21:30">9:30 PM</option>
-                    <option value="21:45">9:45 PM</option>
-                    <option value="22:00" selected>10:00 PM</option>
-                    <option value="22:15">10:15 PM</option>
-                    <option value="22:30">10:30 PM</option>
-                    <option value="22:45">10:45 PM</option>
-                    <option value="23:00">11:00 PM</option>
-                    <option value="23:15">11:15 PM</option>
-                    <option value="23:30">11:30 PM</option>
-                    <option value="23:45">11:45 PM</option>
-                    <option value="23:59">11:59 PM</option>
+                                    <option value="07:00">7:00 AM</option>
+                                    <option value="07:15">7:15 AM</option>
+                                    <option value="07:30">7:30 AM</option>
+                                    <option value="07:45">7:45 AM</option>
+                                    <option value="08:00">8:00 AM</option>
+                                    <option value="08:15">8:15 AM</option>
+                                    <option value="08:30">8:30 AM</option>
+                                    <option value="08:45">8:45 AM</option>
+                                    <option value="09:00">9:00 AM</option>
+                                    <option value="09:15">9:15 AM</option>
+                                    <option value="09:30">9:30 AM</option>
+                                    <option value="09:45">9:45 AM</option>
+                                    <option value="10:00">10:00 AM</option>
+                                    <option value="10:15">10:15 AM</option>
+                                    <option value="10:30">10:30 AM</option>
+                                    <option value="10:45">10:45 AM</option>
+                                    <option value="11:00">11:00 AM</option>
+                                    <option value="11:15">11:15 AM</option>
+                                    <option value="11:30">11:30 AM</option>
+                                    <option value="11:45">11:45 AM</option>
+                                    <option value="12:00">12:00 PM</option>
+                                    <option value="12:15">12:15 PM</option>
+                                    <option value="12:30">12:30 PM</option>
+                                    <option value="12:45">12:45 PM</option>
+                                    <option value="13:00">1:00 PM</option>
+                                    <option value="13:15">1:15 PM</option>
+                                    <option value="13:30">1:30 PM</option>
+                                    <option value="13:45">1:45 PM</option>
+                                    <option value="14:00">2:00 PM</option>
+                                    <option value="14:15">2:15 PM</option>
+                                    <option value="14:30">2:30 PM</option>
+                                    <option value="14:45">2:45 PM</option>
+                                    <option value="15:00">3:00 PM</option>
+                                    <option value="15:15">3:15 PM</option>
+                                    <option value="15:30">3:30 PM</option>
+                                    <option value="15:45">3:45 PM</option>
+                                    <option value="16:00">4:00 PM</option>
+                                    <option value="16:15">4:15 PM</option>
+                                    <option value="16:30">4:30 PM</option>
+                                    <option value="16:45">4:45 PM</option>
+                                    <option value="17:00">5:00 PM</option>
+                                    <option value="17:15">5:15 PM</option>
+                                    <option value="17:30">5:30 PM</option>
+                                    <option value="17:45">5:45 PM</option>
+                                    <option value="18:00">6:00 PM</option>
+                                    <option value="18:15">6:15 PM</option>
+                                    <option value="18:30">6:30 PM</option>
+                                    <option value="18:45">6:45 PM</option>
+                                    <option value="19:00">7:00 PM</option>
+                                    <option value="19:15">7:15 PM</option>
+                                    <option value="19:30">7:30 PM</option>
+                                    <option value="19:45">7:45 PM</option>
+                                    <option value="20:00">8:00 PM</option>
+                                    <option value="20:15">8:15 PM</option>
+                                    <option value="20:30">8:30 PM</option>
+                                    <option value="20:45">8:45 PM</option>
+                                    <option value="21:00">9:00 PM</option>
+                                    <option value="21:15">9:15 PM</option>
+                                    <option value="21:30">9:30 PM</option>
+                                    <option value="21:45">9:45 PM</option>
+                                    <option value="22:00" selected>10:00 PM</option>
+                                    <option value="22:15">10:15 PM</option>
+                                    <option value="22:30">10:30 PM</option>
+                                    <option value="22:45">10:45 PM</option>
+                                    <option value="23:00">11:00 PM</option>
+                                    <option value="23:15">11:15 PM</option>
+                                    <option value="23:30">11:30 PM</option>
+                                    <option value="23:45">11:45 PM</option>
+                                                    <option value="23:59">11:59 PM</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="timeInfo" class="info" style="margin-top: 10px; display: none;"></div>
+                    </div>
+                    
+                    <div class="upload-container glass-card panel-card">
+                        <div class="section-title">
+                            <h3>📂 Upload & Schedule</h3>
+                            <span class="section-subtitle">Attach contacts & launch</span>
+                        </div>
+                        <form id="uploadForm" enctype="multipart/form-data">
+                            <div class="form-row">
+                                <label for="assistantSelect">Select AI Assistant</label>
+                                <select id="assistantSelect" required>
+                                    <option value="">Loading assistants...</option>
+                                </select>
+                                <small id="assistantHelpText" class="helper-text">Choose which AI agent will handle this campaign.</small>
+                            </div>
 
-                </select>
-            </div>
-        </div>
-        <div id="timeInfo" class="info" style="margin-top: 10px; display: none;"></div>
-    </div>
-    
-    <div class="upload-container glass-card panel-card">
-        <div class="section-title">
-            <h3>📂 Upload & Schedule</h3>
-            <span>Attach contacts & launch</span>
-        </div>
-        <form id="uploadForm" enctype="multipart/form-data">
-                <div class="form-row">
-                    <label for="assistantSelect">Select AI Assistant</label>
-                    <select id="assistantSelect" required>
-                        <option value="">Loading assistants...</option>
-                    </select>
-                    <small id="assistantHelpText" class="helper-text">Choose which AI agent will handle this campaign.</small>
+                            <div class="form-row">
+                                <label for="phoneNumberSelect">Select Caller ID (Phone Number)</label>
+                                <select id="phoneNumberSelect" required>
+                                    <option value="">Loading phone numbers...</option>
+                                </select>
+                                <small id="phoneHelpText" class="helper-text">Pick the phone number callers will see.</small>
+                            </div>
+
+                            <div class="file-input">
+                                <input type="file" id="csvFile" name="csvFile" accept=".csv" required>
+                                <p class="file-hint">Maximum 10,000 contacts per upload · CSV format only</p>
+                            </div>
+                            <div class="submit-actions">
+                                <button type="submit" id="submitBtn">Upload and Schedule Calls</button>
+                                <button type="button" id="cancelBtn" class="cancel-btn" style="display: none;">Cancel All Calls</button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <div id="result" class="result-banner glass-card"></div>
                 </div>
-
-                <div class="form-row">
-                    <label for="phoneNumberSelect">Select Caller ID (Phone Number)</label>
-                    <select id="phoneNumberSelect" required>
-                        <option value="">Loading phone numbers...</option>
-                    </select>
-                    <small id="phoneHelpText" class="helper-text">Pick the phone number callers will see.</small>
-                </div>
-
-            <div class="file-input">
-                <input type="file" id="csvFile" name="csvFile" accept=".csv" required>
-                <p class="file-hint">Maximum 10,000 contacts per upload · CSV format only</p>
-            </div>
-            <div class="submit-actions">
-                <button type="submit" id="submitBtn">Upload and Schedule Calls</button>
-                <button type="button" id="cancelBtn" class="cancel-btn" style="display: none;">Cancel All Calls</button>
-            </div>
-        </form>
-    </div>
-    
-    <div id="result" class="result-banner glass-card"></div>
-            </div>
-            <div class="right-column">
+            </aside>
+            
+            <!-- Main Content Area -->
+            <div class="right-column main-content">
     
     <!-- Status Display Container -->
     <div id="statusContainer" class="status-container glass-card panel-card">
@@ -2552,6 +2721,73 @@
             } else {
                 retryBtn.style.display = 'none';
             }
+        }
+
+        // Sidebar Toggle Functionality
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const dashboardLayout = document.querySelector('.dashboard-layout');
+            const isCollapsed = sidebar.classList.contains('sidebar-collapsed');
+            
+            if (isCollapsed) {
+                // Expand sidebar
+                sidebar.classList.remove('sidebar-collapsed');
+                dashboardLayout.classList.remove('sidebar-collapsed');
+                localStorage.setItem('sidebarCollapsed', 'false');
+            } else {
+                // Collapse sidebar
+                sidebar.classList.add('sidebar-collapsed');
+                dashboardLayout.classList.add('sidebar-collapsed');
+                localStorage.setItem('sidebarCollapsed', 'true');
+            }
+        }
+
+        // Initialize sidebar state from localStorage
+        function initializeSidebar() {
+            const sidebarCollapsed = localStorage.getItem('sidebarCollapsed');
+            const sidebar = document.getElementById('sidebar');
+            const dashboardLayout = document.querySelector('.dashboard-layout');
+            
+            if (sidebarCollapsed === 'true') {
+                sidebar.classList.add('sidebar-collapsed');
+                dashboardLayout.classList.add('sidebar-collapsed');
+            } else {
+                sidebar.classList.remove('sidebar-collapsed');
+                dashboardLayout.classList.remove('sidebar-collapsed');
+            }
+        }
+
+        // Initialize sidebar on page load (run immediately if DOM already loaded, otherwise wait)
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeSidebar);
+        } else {
+            // DOM is already ready
+            initializeSidebar();
+        }
+
+        // Also allow clicking sidebar header to expand when collapsed
+        function setupSidebarHeaderClick() {
+            const sidebarHeader = document.querySelector('.sidebar-header');
+            if (sidebarHeader) {
+                sidebarHeader.addEventListener('click', function(e) {
+                    // Don't trigger if clicking the toggle button
+                    if (e.target.closest('.sidebar-toggle')) {
+                        return;
+                    }
+                    // Only expand if collapsed
+                    const sidebar = document.getElementById('sidebar');
+                    if (sidebar && sidebar.classList.contains('sidebar-collapsed')) {
+                        toggleSidebar();
+                    }
+                });
+            }
+        }
+
+        // Setup sidebar header click handler
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupSidebarHeaderClick);
+        } else {
+            setupSidebarHeaderClick();
         }
 
 // Edit name functionality
