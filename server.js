@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const csv = require('csv-parser');
 const axios = require('axios');
+const cookieSession = require('cookie-session');
 const { Pool } = require('pg'); // PostgreSQL connection pool
 require('dotenv').config();
 
@@ -15,6 +16,29 @@ if (!fs.existsSync(uploadsDir)) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const LOGIN_USERNAME = process.env.APP_LOGIN_USERNAME;
+const LOGIN_PASSWORD = process.env.APP_LOGIN_PASSWORD;
+const SESSION_SECRET = process.env.APP_SESSION_SECRET;
+
+if (!SESSION_SECRET) {
+    console.warn('⚠️ APP_SESSION_SECRET is not set. Using an insecure fallback value. Set this env var in production.');
+}
+
+if (!LOGIN_USERNAME || !LOGIN_PASSWORD) {
+    console.warn('⚠️ APP_LOGIN_USERNAME or APP_LOGIN_PASSWORD missing. Login will not work until both are set.');
+}
+
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieSession({
+    name: 'appSession',
+    secret: SESSION_SECRET || 'change-me',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+}));
 
 // NEW: PostgreSQL Database setup
 // Railway automatically provides DATABASE_URL when PostgreSQL is linked to your service
@@ -1199,7 +1223,73 @@ async function rehydrateScheduledCalls() {
     }
 }
 
-// Serve static files from public directory
+function isAuthenticated(req) {
+    return Boolean(req.session && req.session.isAuthenticated);
+}
+
+function sanitizeRedirect(target) {
+    if (!target || typeof target !== 'string') {
+        return '/';
+    }
+    if (!target.startsWith('/')) {
+        return '/';
+    }
+    return target;
+}
+
+// Authentication routes
+app.get('/login', (req, res) => {
+    if (isAuthenticated(req)) {
+        const redirectTarget = sanitizeRedirect(req.query.redirect);
+        return res.redirect(redirectTarget);
+    }
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.post('/login', (req, res) => {
+    const { username, password, redirect } = req.body || {};
+
+    if (LOGIN_USERNAME && LOGIN_PASSWORD &&
+        username === LOGIN_USERNAME &&
+        password === LOGIN_PASSWORD) {
+        req.session.isAuthenticated = true;
+        req.session.username = LOGIN_USERNAME;
+        req.session.loginAt = Date.now();
+
+        const redirectTarget = sanitizeRedirect(redirect);
+        return res.redirect(redirectTarget);
+    }
+
+    const redirectSuffix = redirect ? `&redirect=${encodeURIComponent(sanitizeRedirect(redirect))}` : '';
+    res.redirect(`/login?error=1${redirectSuffix}`);
+});
+
+app.post('/logout', (req, res) => {
+    req.session = null;
+    res.redirect('/login');
+});
+
+const AUTH_WHITELIST_PATHS = new Set(['/login', '/logout', '/health', '/favicon.ico']);
+const AUTH_WHITELIST_PREFIXES = ['/webhook'];
+
+app.use((req, res, next) => {
+    if (AUTH_WHITELIST_PATHS.has(req.path) || AUTH_WHITELIST_PREFIXES.some(prefix => req.path.startsWith(prefix))) {
+        return next();
+    }
+
+    if (isAuthenticated(req)) {
+        return next();
+    }
+
+    if (req.method === 'GET') {
+        const redirectParam = encodeURIComponent(req.originalUrl || '/');
+        return res.redirect(`/login?redirect=${redirectParam}`);
+    }
+
+    return res.status(401).json({ error: 'Not authenticated' });
+});
+
+// Serve static files from public directory (protected by auth middleware)
 app.use(express.static('public'));
 
 // Configure multer for file uploads
@@ -1608,9 +1698,6 @@ app.listen(PORT, () => {
     console.log('📞 VAPI Configuration loaded');
     console.log(`⏳ Call queue configured: Max ${CALL_SYSTEM.maxConcurrent} concurrent calls`);
 });
-
-// Middleware to parse JSON bodies
-app.use(express.json());
 
 // UPDATED: VAPI webhook endpoint with database persistence
 app.post('/webhook/call-ended', (req, res) => {

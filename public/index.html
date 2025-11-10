@@ -223,6 +223,34 @@
             border: 1px solid #dbe7f5;
             border-radius: 10px;
         }
+        .top-bar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            padding: 16px 24px;
+            gap: 12px;
+        }
+        .logout-button {
+            background: #dc3545;
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 18px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(220, 53, 69, 0.3);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .logout-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(220, 53, 69, 0.35);
+        }
+        .logout-button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
         body {
             font-family: Arial, sans-serif;
             max-width: 1200px;
@@ -399,6 +427,9 @@
     </style>
 </head>
 <body>
+    <div class="top-bar">
+        <button id="logoutBtn" class="logout-button">Log Out</button>
+    </div>
     <h1>LeadCallr AI Calling App</h1>
     <p>Upload a CSV file with contacts (Name, Phone, Address) and set your calling schedule.</p>
     
@@ -731,6 +762,21 @@
         let analyticsOutcomeChart = null;
         let availableAssistants = [];
         let availablePhoneNumbers = [];
+
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async () => {
+                logoutBtn.disabled = true;
+                logoutBtn.textContent = 'Logging out...';
+                try {
+                    await fetch('/logout', { method: 'POST' });
+                } catch (error) {
+                    console.error('Error logging out:', error);
+                } finally {
+                    window.location.href = '/login';
+                }
+            });
+        }
         
         // Check for existing campaigns on page load
         window.addEventListener('load', async function() {

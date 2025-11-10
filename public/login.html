@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeadCallr Login</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+        }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0d4f7c, #102a43);
+            font-family: Arial, sans-serif;
+            color: #102a43;
+        }
+        .login-card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 32px 28px;
+            width: min(360px, 90%);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        }
+        .login-card h1 {
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 24px;
+            color: #0d4f7c;
+        }
+        .login-card p {
+            margin-top: 0;
+            margin-bottom: 24px;
+            color: #4a5a6a;
+            font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 18px;
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        input[type="text"],
+        input[type="password"] {
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #c7d9ef;
+            font-size: 14px;
+        }
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #0d4f7c;
+            box-shadow: 0 0 0 2px rgba(13, 79, 124, 0.12);
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background-color: #0d4f7c;
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(13, 79, 124, 0.25);
+        }
+        .error {
+            padding: 12px;
+            border-radius: 8px;
+            background: #fdecea;
+            color: #c0392b;
+            border: 1px solid #f5c6cb;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .footer {
+            margin-top: 24px;
+            font-size: 12px;
+            color: #7a8899;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>LeadCallr</h1>
+        <p>Sign in to schedule and monitor your calling campaigns.</p>
+
+        <div id="errorBox" class="error" style="display:none;">Incorrect username or password. Please try again.</div>
+
+        <form method="POST" action="/login">
+            <input type="hidden" name="redirect" id="redirectField" value="/">
+
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" autocomplete="username" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" autocomplete="current-password" required>
+            </div>
+
+            <button type="submit">Sign In</button>
+        </form>
+
+        <div class="footer">
+            &copy; <span id="year"></span> LeadCallr. All rights reserved.
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const params = new URLSearchParams(window.location.search);
+            const redirectParam = params.get('redirect');
+            if (redirectParam && redirectParam.startsWith('/')) {
+                document.getElementById('redirectField').value = redirectParam;
+            }
+            if (params.get('error') === '1') {
+                document.getElementById('errorBox').style.display = 'block';
+            }
+            document.getElementById('year').textContent = new Date().getFullYear();
+            document.getElementById('username').focus();
+        })();
+    </script>
+</body>
+</html>
+
