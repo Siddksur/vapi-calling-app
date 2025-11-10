@@ -17,6 +17,9 @@ if (!fs.existsSync(uploadsDir)) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Ensure secure cookies work behind Railway's proxy
+app.set('trust proxy', 1);
+
 const LOGIN_USERNAME = process.env.APP_LOGIN_USERNAME;
 const LOGIN_PASSWORD = process.env.APP_LOGIN_PASSWORD;
 const SESSION_SECRET = process.env.APP_SESSION_SECRET;
