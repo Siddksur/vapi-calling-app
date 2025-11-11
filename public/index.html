@@ -711,12 +711,12 @@
             flex-wrap: wrap;
         }
         .status-card {
-            flex: 1 1 140px;
-            min-width: 140px;
+            flex: 1 1 120px;
+            min-width: 120px;
             background: linear-gradient(145deg, rgba(13, 123, 255, 0.08), rgba(0, 0, 0, 0));
             border: 1px solid rgba(13, 123, 255, 0.2);
             border-radius: 16px;
-            padding: 18px 20px;
+            padding: 18px 16px;
             text-align: center;
         }
         .status-card h4 {
@@ -1312,6 +1312,10 @@
         
         <div class="status-summary">
             <div class="status-card">
+                <h4>Contacts</h4>
+                <div class="status-number" id="totalContacts">0</div>
+            </div>
+            <div class="status-card">
                 <h4>Total</h4>
                 <div class="status-number" id="totalCalls">0</div>
             </div>
@@ -1885,7 +1889,7 @@
                     document.getElementById('cancelBtn').style.display = 'none';
                 }
                 
-                // Update summary cards
+                // Update summary cards (contact count will be updated after we group the calls)
                 document.getElementById('totalCalls').textContent = data.summary.total;
                 document.getElementById('completedCalls').textContent = data.summary.completed;
                 document.getElementById('activeCalls').textContent = data.summary.active;
@@ -1957,20 +1961,27 @@
                     return (a.call.index || 0) - (b.call.index || 0);
                 });
                 
+                // Update unique contacts count (original calls only, excluding retries)
+                const uniqueContactsCount = originalCalls.length;
+                document.getElementById('totalContacts').textContent = uniqueContactsCount;
+                
                 // Display calls: original calls first, then their retries
+                // Only increment displayIndex for original calls to show true contact count
                 let displayIndex = 0;
                 originalCalls.forEach(({ call, index: originalIndex }) => {
                     // Display the original call - pass expandedStates
                     const row = createCallRow(call, displayIndex, false, null, expandedStates);
                     tableBody.appendChild(row);
-                    displayIndex++;
+                    displayIndex++; // Only increment for original calls (contacts)
                     
                     // Display retries for this call if any
+                    // Retries don't increment displayIndex - they show ↪ and don't affect contact numbering
                     if (callsByOriginal[call.callId]) {
                         callsByOriginal[call.callId].forEach(({ call: retryCall }) => {
-                            const retryRow = createCallRow(retryCall, displayIndex, true, call.callId, expandedStates);
+                            // Pass -1 or null as displayIndex for retries since they don't show a number
+                            const retryRow = createCallRow(retryCall, -1, true, call.callId, expandedStates);
                             tableBody.appendChild(retryRow);
-                            displayIndex++;
+                            // Don't increment displayIndex for retries - they're not separate contacts
                         });
                     }
                 });
@@ -2120,8 +2131,9 @@
                     call.summary.substring(0, 100) + '...' : call.summary;
                 
                 if (call.summary.length > 100) {
-                    // Use callId if available, otherwise fall back to displayIndex
-                    const summaryId = call.callId || `call-${displayIndex}`;
+                    // Use callId if available (all calls including retries should have this)
+                    // Fall back to database ID, then displayIndex (only if >= 0), then a generated ID
+                    const summaryId = call.callId || call.id || (displayIndex >= 0 ? `call-${displayIndex}` : `call-${call.id || 'unknown'}`);
                     // Check expanded state from parameter or global state
                     const stateToCheck = expandedStates || window.expandedStates || {};
                     const isExpanded = stateToCheck[summaryId] === true;
