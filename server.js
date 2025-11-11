@@ -232,8 +232,31 @@ async function ensureSupportTables() {
                 id VARCHAR(255) PRIMARY KEY,
                 assistant_id VARCHAR(255) NOT NULL REFERENCES assistants(id),
                 phone_number_id VARCHAR(255) NOT NULL REFERENCES phone_numbers(id),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMP NULL
             )
+        `);
+
+        // Add deleted_at column if it doesn't exist (migration)
+        try {
+            await pool.query(`
+                ALTER TABLE campaigns 
+                ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL
+            `);
+        } catch (err) {
+            // Column might already exist, ignore
+        }
+
+        // Create indexes for performance
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_campaigns_deleted_at 
+            ON campaigns(deleted_at) 
+            WHERE deleted_at IS NULL
+        `);
+
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_calls_campaign_id 
+            ON calls(campaign_id)
         `);
 
         await pool.query(`
@@ -573,6 +596,7 @@ const DB_HELPERS = {
                 LEFT JOIN call_stats cs ON cs.campaign_id = c.id
                 LEFT JOIN assistants a ON a.id = c.assistant_id
                 LEFT JOIN phone_numbers p ON p.id = c.phone_number_id
+                WHERE c.deleted_at IS NULL
                 ORDER BY COALESCE(cs.last_updated, c.created_at) DESC
             `);
             
@@ -1468,6 +1492,81 @@ app.get('/api/campaigns', (req, res) => {
         }
         res.json({ campaigns: campaigns });
     });
+});
+
+// NEW: Delete campaign endpoint
+app.delete('/api/campaigns/:campaignId', async (req, res) => {
+    const { campaignId } = req.params;
+    
+    if (!campaignId) {
+        return res.status(400).json({ error: 'Campaign ID is required' });
+    }
+
+    const client = await pool.connect();
+    
+    try {
+        await client.query('BEGIN');
+
+        // Check if campaign exists and is not already deleted
+        const campaignCheck = await client.query(`
+            SELECT id, deleted_at 
+            FROM campaigns 
+            WHERE id = $1
+        `, [campaignId]);
+
+        if (campaignCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(404).json({ error: 'Campaign not found' });
+        }
+
+        if (campaignCheck.rows[0].deleted_at) {
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(410).json({ error: 'Campaign already deleted' });
+        }
+
+        // Get call count for response
+        const callCountResult = await client.query(`
+            SELECT COUNT(*) as count 
+            FROM calls 
+            WHERE campaign_id = $1
+        `, [campaignId]);
+        const callCount = parseInt(callCountResult.rows[0].count);
+
+        // Soft delete: Set deleted_at timestamp (allows for future recovery/archiving)
+        await client.query(`
+            UPDATE campaigns 
+            SET deleted_at = CURRENT_TIMESTAMP 
+            WHERE id = $1
+        `, [campaignId]);
+
+        // Optionally, you can also delete associated calls
+        // For now, we'll keep calls but they won't show up in campaign queries
+        // Uncomment below for hard delete of calls:
+        // await client.query(`
+        //     DELETE FROM calls 
+        //     WHERE campaign_id = $1
+        // `, [campaignId]);
+
+        await client.query('COMMIT');
+        client.release();
+
+        res.json({ 
+            success: true, 
+            message: 'Campaign deleted successfully',
+            campaignId: campaignId,
+            deletedCallCount: callCount
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        client.release();
+        console.error('❌ Error deleting campaign:', err);
+        res.status(500).json({ 
+            error: 'Error deleting campaign',
+            details: err.message 
+        });
+    }
 });
 
 // UPDATED: Get current call status from database (now accepts optional campaignId parameter)
