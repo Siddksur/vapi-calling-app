@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - LeadCallr AI App</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg-gradient: radial-gradient(120% 120% at 0% 0%, rgba(13, 79, 124, 0.78) 0%, rgba(16, 42, 67, 0.95) 45%, #091524 100%);
+            --card-bg: rgba(255, 255, 255, 0.92);
+            --card-border: rgba(255, 255, 255, 0.16);
+            --primary: #0d7bff;
+            --primary-dark: #0b5ed7;
+            --success: #28a745;
+            --warning: #ffc107;
+            --danger: #dc3545;
+            --text-primary: #102a43;
+            --text-secondary: #516177;
+            --shadow: 0 24px 60px rgba(7, 14, 30, 0.25);
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-primary);
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        .background-glow {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(60% 60% at 10% 10%, rgba(13, 123, 255, 0.18) 0%, rgba(9, 21, 36, 0) 60%),
+                radial-gradient(40% 40% at 90% 10%, rgba(0, 255, 224, 0.15) 0%, rgba(9, 21, 36, 0) 55%);
+            z-index: 0;
+        }
+
+        .app-shell {
+            position: relative;
+            z-index: 1;
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 40px 32px 88px;
+        }
+
+        .glass-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 22px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(12px);
+            padding: 30px;
+            margin-bottom: 28px;
+        }
+
+        .top-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 22px 30px;
+            margin-bottom: 32px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 22px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(12px);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #0f1f38;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 10px 22px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            box-shadow: 0 12px 30px rgba(13, 123, 255, 0.35);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 34px rgba(13, 123, 255, 0.42);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545, #b71c2b);
+            color: white;
+            box-shadow: 0 12px 30px rgba(220, 53, 69, 0.35);
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 34px rgba(220, 53, 69, 0.42);
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #102a43;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid rgba(13, 123, 255, 0.2);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            color: #0d4f7c;
+            margin-bottom: 8px;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #c7d9ef;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(13, 123, 255, 0.1);
+        }
+
+        .form-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .btn-fetch {
+            background: var(--success);
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .btn-fetch:hover {
+            background: #218838;
+        }
+
+        .btn-fetch:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .resource-list {
+            margin-top: 24px;
+        }
+
+        .resource-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(16, 42, 67, 0.1);
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        .resource-info {
+            flex: 1;
+        }
+
+        .resource-info h4 {
+            margin: 0 0 4px;
+            font-size: 16px;
+            color: #102a43;
+        }
+
+        .resource-info p {
+            margin: 0;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .resource-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-edit {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-edit:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-toggle {
+            background: var(--warning);
+            color: #000;
+        }
+
+        .btn-toggle:hover {
+            background: #e0a800;
+        }
+
+        .btn-delete {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-delete:hover {
+            background: #c82333;
+        }
+
+        .btn-stats {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-stats:hover {
+            background: #117a8b;
+        }
+
+        .message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .message-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .stats-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stats-modal.active {
+            display: flex;
+        }
+
+        .stats-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .stats-content h3 {
+            margin-top: 0;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="background-glow"></div>
+    <div class="app-shell">
+        <div class="top-bar">
+            <div class="brand">
+                <h1>Admin Panel</h1>
+            </div>
+            <div class="nav-buttons">
+                <a href="/" class="btn btn-primary">Back to Dashboard</a>
+                <button class="btn btn-danger" onclick="handleLogout()">Logout</button>
+            </div>
+        </div>
+
+        <div id="messageContainer"></div>
+
+        <!-- Assistants Section -->
+        <div class="glass-card">
+            <h2 class="section-title">Assistants</h2>
+            <div class="form-group">
+                <label>Fetch from VAPI (Enter Assistant ID)</label>
+                <div class="form-row">
+                    <div class="form-group">
+                        <input type="text" id="fetchAssistantId" placeholder="Enter VAPI Assistant ID">
+                    </div>
+                    <button class="btn-fetch" onclick="fetchAssistantFromVAPI()">Fetch from VAPI</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Add/Edit Assistant</label>
+                <div class="form-row">
+                    <div class="form-group">
+                        <input type="text" id="assistantId" placeholder="Assistant ID" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="assistantName" placeholder="Assistant Name" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="assistantDescription" placeholder="Description (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="assistantActive" checked>
+                            Active
+                        </label>
+                    </div>
+                    <button class="btn btn-primary" onclick="saveAssistant()">Save Assistant</button>
+                </div>
+            </div>
+            <div class="resource-list" id="assistantsList"></div>
+        </div>
+
+        <!-- Phone Numbers Section -->
+        <div class="glass-card">
+            <h2 class="section-title">Phone Numbers</h2>
+            <div class="form-group">
+                <label>Fetch from VAPI (Enter Phone Number ID)</label>
+                <div class="form-row">
+                    <div class="form-group">
+                        <input type="text" id="fetchPhoneId" placeholder="Enter VAPI Phone Number ID">
+                    </div>
+                    <button class="btn-fetch" onclick="fetchPhoneFromVAPI()">Fetch from VAPI</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Add/Edit Phone Number</label>
+                <div class="form-row">
+                    <div class="form-group">
+                        <input type="text" id="phoneId" placeholder="Phone Number ID" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="phoneDisplayName" placeholder="Display Name" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="phoneNumber" placeholder="Phone Number (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="phoneActive" checked>
+                            Active
+                        </label>
+                    </div>
+                    <button class="btn btn-primary" onclick="savePhoneNumber()">Save Phone Number</button>
+                </div>
+            </div>
+            <div class="resource-list" id="phoneNumbersList"></div>
+        </div>
+
+        <!-- Webhook Section -->
+        <div class="glass-card">
+            <h2 class="section-title">Webhook Configuration</h2>
+            <div class="form-group">
+                <label>Webhook URL</label>
+                <input type="url" id="webhookUrl" placeholder="https://your-webhook-url.com/endpoint">
+                <small style="color: var(--text-secondary); display: block; margin-top: 4px;">
+                    This webhook will automatically receive contact data for calls with outcomes: "interested", "send_listings", or "callback"
+                </small>
+            </div>
+            <button class="btn btn-primary" onclick="saveWebhook()">Save Webhook URL</button>
+        </div>
+
+        <!-- Stats Modal -->
+        <div class="stats-modal" id="statsModal" onclick="if(event.target.id === 'statsModal') closeStatsModal()">
+            <div class="stats-content" onclick="event.stopPropagation()">
+                <h3 id="statsTitle">Usage Statistics</h3>
+                <div class="stats-grid" id="statsGrid"></div>
+                <button class="btn btn-primary" onclick="closeStatsModal()" style="margin-top: 20px; width: 100%;">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load data on page load
+        window.addEventListener('load', () => {
+            loadAssistants();
+            loadPhoneNumbers();
+            loadWebhook();
+        });
+
+        function showMessage(message, type = 'success') {
+            const container = document.getElementById('messageContainer');
+            container.innerHTML = `<div class="message message-${type}">${message}</div>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        async function fetchAssistantFromVAPI() {
+            const id = document.getElementById('fetchAssistantId').value.trim();
+            if (!id) {
+                showMessage('Please enter an Assistant ID', 'error');
+                return;
+            }
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Fetching...';
+
+            try {
+                const response = await fetch(`/api/admin/fetch-assistant/${id}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('assistantId').value = data.assistant.id;
+                    document.getElementById('assistantName').value = data.assistant.name;
+                    document.getElementById('assistantDescription').value = data.assistant.description || '';
+                    showMessage('Assistant fetched from VAPI successfully');
+                } else {
+                    showMessage(data.error || 'Failed to fetch assistant', 'error');
+                }
+            } catch (error) {
+                showMessage('Error fetching assistant: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Fetch from VAPI';
+            }
+        }
+
+        async function fetchPhoneFromVAPI() {
+            const id = document.getElementById('fetchPhoneId').value.trim();
+            if (!id) {
+                showMessage('Please enter a Phone Number ID', 'error');
+                return;
+            }
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Fetching...';
+
+            try {
+                const response = await fetch(`/api/admin/fetch-phone/${id}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('phoneId').value = data.phoneNumber.id;
+                    document.getElementById('phoneDisplayName').value = data.phoneNumber.displayName;
+                    document.getElementById('phoneNumber').value = data.phoneNumber.phoneNumber || '';
+                    showMessage('Phone number fetched from VAPI successfully');
+                } else {
+                    showMessage(data.error || 'Failed to fetch phone number', 'error');
+                }
+            } catch (error) {
+                showMessage('Error fetching phone number: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Fetch from VAPI';
+            }
+        }
+
+        async function saveAssistant() {
+            const id = document.getElementById('assistantId').value.trim();
+            const name = document.getElementById('assistantName').value.trim();
+            const description = document.getElementById('assistantDescription').value.trim();
+            const isActive = document.getElementById('assistantActive').checked;
+
+            if (!id || !name) {
+                showMessage('ID and Name are required', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/assistant', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, name, description, isActive })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('Assistant saved successfully');
+                    loadAssistants();
+                    // Clear form
+                    document.getElementById('assistantId').value = '';
+                    document.getElementById('assistantName').value = '';
+                    document.getElementById('assistantDescription').value = '';
+                    document.getElementById('assistantActive').checked = true;
+                } else {
+                    showMessage(data.error || 'Failed to save assistant', 'error');
+                }
+            } catch (error) {
+                showMessage('Error saving assistant: ' + error.message, 'error');
+            }
+        }
+
+        async function savePhoneNumber() {
+            const id = document.getElementById('phoneId').value.trim();
+            const displayName = document.getElementById('phoneDisplayName').value.trim();
+            const phoneNumber = document.getElementById('phoneNumber').value.trim();
+            const isActive = document.getElementById('phoneActive').checked;
+
+            if (!id || !displayName) {
+                showMessage('ID and Display Name are required', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/phone-number', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, displayName, phoneNumber, isActive })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('Phone number saved successfully');
+                    loadPhoneNumbers();
+                    // Clear form
+                    document.getElementById('phoneId').value = '';
+                    document.getElementById('phoneDisplayName').value = '';
+                    document.getElementById('phoneNumber').value = '';
+                    document.getElementById('phoneActive').checked = true;
+                } else {
+                    showMessage(data.error || 'Failed to save phone number', 'error');
+                }
+            } catch (error) {
+                showMessage('Error saving phone number: ' + error.message, 'error');
+            }
+        }
+
+        async function loadAssistants() {
+            try {
+                const response = await fetch('/api/admin/assistants');
+                const data = await response.json();
+                const list = document.getElementById('assistantsList');
+                
+                if (data.assistants.length === 0) {
+                    list.innerHTML = '<p style="color: var(--text-secondary);">No assistants found. Add one above.</p>';
+                    return;
+                }
+
+                list.innerHTML = data.assistants.map(assistant => `
+                    <div class="resource-item">
+                        <div class="resource-info">
+                            <h4>${assistant.name} <span class="status-badge ${assistant.is_active ? 'status-active' : 'status-inactive'}">${assistant.is_active ? 'Active' : 'Inactive'}</span></h4>
+                            <p><strong>ID:</strong> ${assistant.id}${assistant.description ? ` | ${assistant.description}` : ''}</p>
+                        </div>
+                        <div class="resource-actions">
+                            <button class="btn-sm btn-edit" onclick="editAssistant('${assistant.id}', '${assistant.name.replace(/'/g, "\\'")}', '${(assistant.description || '').replace(/'/g, "\\'")}', ${assistant.is_active})">Edit</button>
+                            <button class="btn-sm btn-toggle" onclick="toggleAssistant('${assistant.id}')">${assistant.is_active ? 'Deactivate' : 'Activate'}</button>
+                            <button class="btn-sm btn-stats" onclick="showAssistantStats('${assistant.id}', '${assistant.name.replace(/'/g, "\\'")}')">Stats</button>
+                            <button class="btn-sm btn-delete" onclick="deleteAssistant('${assistant.id}', '${assistant.name.replace(/'/g, "\\'")}')">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showMessage('Error loading assistants: ' + error.message, 'error');
+            }
+        }
+
+        async function loadPhoneNumbers() {
+            try {
+                const response = await fetch('/api/admin/phone-numbers');
+                const data = await response.json();
+                const list = document.getElementById('phoneNumbersList');
+                
+                if (data.phoneNumbers.length === 0) {
+                    list.innerHTML = '<p style="color: var(--text-secondary);">No phone numbers found. Add one above.</p>';
+                    return;
+                }
+
+                list.innerHTML = data.phoneNumbers.map(phone => `
+                    <div class="resource-item">
+                        <div class="resource-info">
+                            <h4>${phone.display_name} <span class="status-badge ${phone.is_active ? 'status-active' : 'status-inactive'}">${phone.is_active ? 'Active' : 'Inactive'}</span></h4>
+                            <p><strong>ID:</strong> ${phone.id}${phone.phone_number ? ` | ${phone.phone_number}` : ''}</p>
+                        </div>
+                        <div class="resource-actions">
+                            <button class="btn-sm btn-edit" onclick="editPhoneNumber('${phone.id}', '${phone.display_name.replace(/'/g, "\\'")}', '${(phone.phone_number || '').replace(/'/g, "\\'")}', ${phone.is_active})">Edit</button>
+                            <button class="btn-sm btn-toggle" onclick="togglePhoneNumber('${phone.id}')">${phone.is_active ? 'Deactivate' : 'Activate'}</button>
+                            <button class="btn-sm btn-stats" onclick="showPhoneStats('${phone.id}', '${phone.display_name.replace(/'/g, "\\'")}')">Stats</button>
+                            <button class="btn-sm btn-delete" onclick="deletePhoneNumber('${phone.id}', '${phone.display_name.replace(/'/g, "\\'")}')">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                showMessage('Error loading phone numbers: ' + error.message, 'error');
+            }
+        }
+
+        function editAssistant(id, name, description, isActive) {
+            document.getElementById('assistantId').value = id;
+            document.getElementById('assistantName').value = name;
+            document.getElementById('assistantDescription').value = description;
+            document.getElementById('assistantActive').checked = isActive;
+            document.getElementById('assistantId').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function editPhoneNumber(id, displayName, phoneNumber, isActive) {
+            document.getElementById('phoneId').value = id;
+            document.getElementById('phoneDisplayName').value = displayName;
+            document.getElementById('phoneNumber').value = phoneNumber;
+            document.getElementById('phoneActive').checked = isActive;
+            document.getElementById('phoneId').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        async function toggleAssistant(id) {
+            try {
+                const response = await fetch(`/api/admin/assistant/${id}/toggle`, { method: 'PATCH' });
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage(`Assistant ${data.isActive ? 'activated' : 'deactivated'} successfully`);
+                    loadAssistants();
+                } else {
+                    showMessage(data.error || 'Failed to toggle assistant', 'error');
+                }
+            } catch (error) {
+                showMessage('Error toggling assistant: ' + error.message, 'error');
+            }
+        }
+
+        async function togglePhoneNumber(id) {
+            try {
+                const response = await fetch(`/api/admin/phone-number/${id}/toggle`, { method: 'PATCH' });
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage(`Phone number ${data.isActive ? 'activated' : 'deactivated'} successfully`);
+                    loadPhoneNumbers();
+                } else {
+                    showMessage(data.error || 'Failed to toggle phone number', 'error');
+                }
+            } catch (error) {
+                showMessage('Error toggling phone number: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteAssistant(id, name) {
+            if (!confirm(`Are you sure you want to delete assistant "${name}"? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/assistant/${id}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('Assistant deleted successfully');
+                    loadAssistants();
+                } else {
+                    showMessage(data.error || 'Failed to delete assistant', 'error');
+                }
+            } catch (error) {
+                showMessage('Error deleting assistant: ' + error.message, 'error');
+            }
+        }
+
+        async function deletePhoneNumber(id, name) {
+            if (!confirm(`Are you sure you want to delete phone number "${name}"? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/phone-number/${id}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('Phone number deleted successfully');
+                    loadPhoneNumbers();
+                } else {
+                    showMessage(data.error || 'Failed to delete phone number', 'error');
+                }
+            } catch (error) {
+                showMessage('Error deleting phone number: ' + error.message, 'error');
+            }
+        }
+
+        async function showAssistantStats(id, name) {
+            try {
+                const response = await fetch(`/api/admin/assistant/${id}/stats`);
+                const data = await response.json();
+                const stats = data.stats;
+
+                document.getElementById('statsTitle').textContent = `Statistics: ${name}`;
+                document.getElementById('statsGrid').innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.campaign_count || 0}</div>
+                        <div class="stat-label">Campaigns</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.call_count || 0}</div>
+                        <div class="stat-label">Total Calls</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.completed_count || 0}</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.successful_count || 0}</div>
+                        <div class="stat-label">Successful</div>
+                    </div>
+                `;
+                document.getElementById('statsModal').classList.add('active');
+            } catch (error) {
+                showMessage('Error loading stats: ' + error.message, 'error');
+            }
+        }
+
+        async function showPhoneStats(id, name) {
+            try {
+                const response = await fetch(`/api/admin/phone-number/${id}/stats`);
+                const data = await response.json();
+                const stats = data.stats;
+
+                document.getElementById('statsTitle').textContent = `Statistics: ${name}`;
+                document.getElementById('statsGrid').innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.campaign_count || 0}</div>
+                        <div class="stat-label">Campaigns</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.call_count || 0}</div>
+                        <div class="stat-label">Total Calls</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.completed_count || 0}</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.successful_count || 0}</div>
+                        <div class="stat-label">Successful</div>
+                    </div>
+                `;
+                document.getElementById('statsModal').classList.add('active');
+            } catch (error) {
+                showMessage('Error loading stats: ' + error.message, 'error');
+            }
+        }
+
+        function closeStatsModal() {
+            document.getElementById('statsModal').classList.remove('active');
+        }
+
+        async function loadWebhook() {
+            try {
+                const response = await fetch('/api/admin/webhook');
+                const data = await response.json();
+                if (data.webhookUrl) {
+                    document.getElementById('webhookUrl').value = data.webhookUrl;
+                }
+            } catch (error) {
+                console.error('Error loading webhook:', error);
+            }
+        }
+
+        async function saveWebhook() {
+            const url = document.getElementById('webhookUrl').value.trim();
+            if (!url) {
+                showMessage('Webhook URL is required', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/webhook', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ webhookUrl: url })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('Webhook URL saved successfully');
+                } else {
+                    showMessage(data.error || 'Failed to save webhook URL', 'error');
+                }
+            } catch (error) {
+                showMessage('Error saving webhook URL: ' + error.message, 'error');
+            }
+        }
+
+        async function handleLogout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                console.error('Error logging out:', error);
+                window.location.href = '/login';
+            }
+        }
+    </script>
+</body>
+</html>
+

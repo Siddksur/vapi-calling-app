@@ -236,6 +236,15 @@ async function ensureSupportTables() {
             )
         `);
 
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS webhook_config (
+                id SERIAL PRIMARY KEY,
+                webhook_url TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
         console.log('✅ Support tables verified');
     } catch (err) {
         console.error('❌ Error ensuring support tables:', err.message);
@@ -1413,6 +1422,11 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Serve the admin page
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 // Health check route
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', message: 'Server is running' });
@@ -2071,7 +2085,7 @@ app.post('/webhook/call-ended', (req, res) => {
             
             // NEW: Update database with outcome
             if (outcome.callId) {
-                DB_HELPERS.updateCallOutcome(outcome.callId, outcome, (err) => {
+                DB_HELPERS.updateCallOutcome(outcome.callId, outcome, async (err) => {
                     if (err) {
                         console.error('❌ Error updating call outcome in database:', err);
                     } else {
@@ -2087,6 +2101,78 @@ app.post('/webhook/call-ended', (req, res) => {
                         if (isVoicemail) {
                             console.log('📞 Voicemail detected - scheduling retry in 1 minute');
                             scheduleVoicemailRetry(outcome.callId);
+                        }
+                        
+                        // NEW: Auto-send webhook for specific outcomes
+                        const normalizedOutcome = (outcome.callOutcome || outcome.endedReason || '').toLowerCase().trim();
+                        const shouldSendWebhook = ['interested', 'send_listings', 'callback'].includes(normalizedOutcome);
+                        
+                        if (shouldSendWebhook) {
+                            // Get call details from database to send to webhook
+                            DB_HELPERS.getCallByCallId(outcome.callId, async (err, call) => {
+                                if (err || !call) {
+                                    console.error('❌ Error fetching call for webhook:', err);
+                                    return;
+                                }
+                                
+                                // Get webhook URL
+                                try {
+                                    const webhookResult = await pool.query(`
+                                        SELECT webhook_url FROM webhook_config ORDER BY id DESC LIMIT 1
+                                    `);
+                                    
+                                    if (webhookResult.rows.length > 0 && webhookResult.rows[0].webhook_url) {
+                                        // Get assistant name from campaign or assistant table
+                                        let assistantName = '';
+                                        if (call.campaignId) {
+                                            const campaignMeta = await DB_HELPERS.getCampaignById(call.campaignId);
+                                            if (campaignMeta && campaignMeta.assistant_name) {
+                                                assistantName = campaignMeta.assistant_name;
+                                            }
+                                        }
+                                        
+                                        // If not found from campaign, try to get from assistant table
+                                        if (!assistantName && call.assistantId) {
+                                            const assistant = await DB_HELPERS.getAssistantById(call.assistantId);
+                                            if (assistant && assistant.name) {
+                                                assistantName = assistant.name;
+                                            }
+                                        }
+                                        
+                                        // Prepare webhook payload
+                                        const payload = {
+                                            contact_name: call.contact.name,
+                                            phone_number: call.contact.phone,
+                                            address: call.contact.address || '',
+                                            call_outcome: call.callOutcome || call.endedReason || '',
+                                            call_summary: call.summary || '',
+                                            recording: call.recordingUrl || '',
+                                            Agent: assistantName || ''
+                                        };
+                                        
+                                        // Send to webhook
+                                        try {
+                                            const webhookResponse = await axios.post(webhookResult.rows[0].webhook_url, payload, {
+                                                headers: { 'Content-Type': 'application/json' },
+                                                timeout: 10000,
+                                                validateStatus: () => true // Don't throw on any status code
+                                            });
+                                            
+                                            if (webhookResponse.status === 200) {
+                                                console.log(`✅ Auto-sent webhook for call ${outcome.callId} with outcome: ${normalizedOutcome} (status: 200)`);
+                                            } else {
+                                                console.log(`⚠️ Auto-sent webhook for call ${outcome.callId} returned status: ${webhookResponse.status}`);
+                                            }
+                                        } catch (webhookError) {
+                                            console.error('❌ Error sending auto-webhook:', webhookError.message);
+                                        }
+                                    } else {
+                                        console.log('⚠️ Webhook URL not configured - skipping auto-send');
+                                    }
+                                } catch (webhookError) {
+                                    console.error('❌ Error checking webhook config:', webhookError);
+                                }
+                            });
                         }
                     }
                 });
@@ -2118,6 +2204,408 @@ process.on('SIGINT', () => {
         }
         process.exit(0);
     });
+});
+
+// ==================== ADMIN API ENDPOINTS ====================
+
+// Fetch assistant details from VAPI
+app.get('/api/admin/fetch-assistant/:id', async (req, res) => {
+    try {
+        const assistantId = req.params.id;
+        const response = await axios.get(`${VAPI_CONFIG.baseUrl}/assistant/${assistantId}`, {
+            headers: {
+                'Authorization': `Bearer ${VAPI_CONFIG.privateKey}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        res.json({
+            success: true,
+            assistant: {
+                id: response.data.id,
+                name: response.data.name || response.data.firstMessage || 'Unnamed Assistant',
+                description: response.data.model?.provider || null
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error fetching assistant from VAPI:', error.message);
+        res.status(500).json({ 
+            success: false, 
+            error: error.response?.data?.message || error.message || 'Failed to fetch assistant from VAPI' 
+        });
+    }
+});
+
+// Fetch phone number details from VAPI
+app.get('/api/admin/fetch-phone/:id', async (req, res) => {
+    try {
+        const phoneId = req.params.id;
+        const response = await axios.get(`${VAPI_CONFIG.baseUrl}/phone-number/${phoneId}`, {
+            headers: {
+                'Authorization': `Bearer ${VAPI_CONFIG.privateKey}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        res.json({
+            success: true,
+            phoneNumber: {
+                id: response.data.id,
+                displayName: response.data.name || response.data.number || 'Unnamed Phone',
+                phoneNumber: response.data.number || null
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error fetching phone number from VAPI:', error.message);
+        res.status(500).json({ 
+            success: false, 
+            error: error.response?.data?.message || error.message || 'Failed to fetch phone number from VAPI' 
+        });
+    }
+});
+
+// Get all assistants (including inactive)
+app.get('/api/admin/assistants', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT id, name, description, is_active, created_at, updated_at
+            FROM assistants
+            ORDER BY name ASC
+        `);
+        res.json({ assistants: result.rows });
+    } catch (error) {
+        console.error('❌ Error fetching assistants:', error);
+        res.status(500).json({ error: 'Error fetching assistants' });
+    }
+});
+
+// Get all phone numbers (including inactive)
+app.get('/api/admin/phone-numbers', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT id, display_name, phone_number, is_active, created_at, updated_at
+            FROM phone_numbers
+            ORDER BY display_name ASC
+        `);
+        res.json({ phoneNumbers: result.rows });
+    } catch (error) {
+        console.error('❌ Error fetching phone numbers:', error);
+        res.status(500).json({ error: 'Error fetching phone numbers' });
+    }
+});
+
+// Add or update assistant
+app.post('/api/admin/assistant', express.json(), async (req, res) => {
+    try {
+        const { id, name, description, isActive } = req.body;
+        if (!id || !name) {
+            return res.status(400).json({ error: 'ID and name are required' });
+        }
+        
+        await pool.query(`
+            INSERT INTO assistants (id, name, description, is_active, updated_at)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                description = EXCLUDED.description,
+                is_active = EXCLUDED.is_active,
+                updated_at = CURRENT_TIMESTAMP
+        `, [id, name, description || null, isActive !== false]);
+        
+        res.json({ success: true, message: 'Assistant saved successfully' });
+    } catch (error) {
+        console.error('❌ Error saving assistant:', error);
+        res.status(500).json({ error: 'Error saving assistant' });
+    }
+});
+
+// Add or update phone number
+app.post('/api/admin/phone-number', express.json(), async (req, res) => {
+    try {
+        const { id, displayName, phoneNumber, isActive } = req.body;
+        if (!id || !displayName) {
+            return res.status(400).json({ error: 'ID and display name are required' });
+        }
+        
+        await pool.query(`
+            INSERT INTO phone_numbers (id, display_name, phone_number, is_active, updated_at)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (id) DO UPDATE SET
+                display_name = EXCLUDED.display_name,
+                phone_number = EXCLUDED.phone_number,
+                is_active = EXCLUDED.is_active,
+                updated_at = CURRENT_TIMESTAMP
+        `, [id, displayName, phoneNumber || null, isActive !== false]);
+        
+        res.json({ success: true, message: 'Phone number saved successfully' });
+    } catch (error) {
+        console.error('❌ Error saving phone number:', error);
+        res.status(500).json({ error: 'Error saving phone number' });
+    }
+});
+
+// Toggle assistant active/inactive
+app.patch('/api/admin/assistant/:id/toggle', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(`
+            UPDATE assistants 
+            SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING is_active
+        `, [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Assistant not found' });
+        }
+        
+        res.json({ success: true, isActive: result.rows[0].is_active });
+    } catch (error) {
+        console.error('❌ Error toggling assistant:', error);
+        res.status(500).json({ error: 'Error toggling assistant' });
+    }
+});
+
+// Toggle phone number active/inactive
+app.patch('/api/admin/phone-number/:id/toggle', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(`
+            UPDATE phone_numbers 
+            SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING is_active
+        `, [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Phone number not found' });
+        }
+        
+        res.json({ success: true, isActive: result.rows[0].is_active });
+    } catch (error) {
+        console.error('❌ Error toggling phone number:', error);
+        res.status(500).json({ error: 'Error toggling phone number' });
+    }
+});
+
+// Delete assistant
+app.delete('/api/admin/assistant/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Check if assistant is used in any campaigns
+        const usageCheck = await pool.query(`
+            SELECT COUNT(*) as count FROM campaigns WHERE assistant_id = $1
+        `, [id]);
+        
+        if (parseInt(usageCheck.rows[0].count) > 0) {
+            return res.status(400).json({ 
+                error: 'Cannot delete assistant that is used in campaigns. Deactivate it instead.' 
+            });
+        }
+        
+        await pool.query('DELETE FROM assistants WHERE id = $1', [id]);
+        res.json({ success: true, message: 'Assistant deleted successfully' });
+    } catch (error) {
+        console.error('❌ Error deleting assistant:', error);
+        res.status(500).json({ error: 'Error deleting assistant' });
+    }
+});
+
+// Delete phone number
+app.delete('/api/admin/phone-number/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Check if phone number is used in any campaigns
+        const usageCheck = await pool.query(`
+            SELECT COUNT(*) as count FROM campaigns WHERE phone_number_id = $1
+        `, [id]);
+        
+        if (parseInt(usageCheck.rows[0].count) > 0) {
+            return res.status(400).json({ 
+                error: 'Cannot delete phone number that is used in campaigns. Deactivate it instead.' 
+            });
+        }
+        
+        await pool.query('DELETE FROM phone_numbers WHERE id = $1', [id]);
+        res.json({ success: true, message: 'Phone number deleted successfully' });
+    } catch (error) {
+        console.error('❌ Error deleting phone number:', error);
+        res.status(500).json({ error: 'Error deleting phone number' });
+    }
+});
+
+// Get usage stats for assistant
+app.get('/api/admin/assistant/:id/stats', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(`
+            SELECT 
+                COUNT(DISTINCT c.campaign_id) as campaign_count,
+                COUNT(c.id) as call_count,
+                SUM(CASE WHEN c.status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+                SUM(CASE WHEN c.success_evaluation = 'Pass' THEN 1 ELSE 0 END) as successful_count
+            FROM calls c
+            WHERE c.assistant_id = $1
+        `, [id]);
+        
+        res.json({ stats: result.rows[0] || { campaign_count: 0, call_count: 0, completed_count: 0, successful_count: 0 } });
+    } catch (error) {
+        console.error('❌ Error fetching assistant stats:', error);
+        res.status(500).json({ error: 'Error fetching assistant stats' });
+    }
+});
+
+// Get usage stats for phone number
+app.get('/api/admin/phone-number/:id/stats', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(`
+            SELECT 
+                COUNT(DISTINCT c.campaign_id) as campaign_count,
+                COUNT(c.id) as call_count,
+                SUM(CASE WHEN c.status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+                SUM(CASE WHEN c.success_evaluation = 'Pass' THEN 1 ELSE 0 END) as successful_count
+            FROM calls c
+            WHERE c.phone_number_id = $1
+        `, [id]);
+        
+        res.json({ stats: result.rows[0] || { campaign_count: 0, call_count: 0, completed_count: 0, successful_count: 0 } });
+    } catch (error) {
+        console.error('❌ Error fetching phone number stats:', error);
+        res.status(500).json({ error: 'Error fetching phone number stats' });
+    }
+});
+
+// Get webhook URL
+app.get('/api/admin/webhook', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT webhook_url, updated_at
+            FROM webhook_config
+            ORDER BY id DESC
+            LIMIT 1
+        `);
+        
+        res.json({ 
+            webhookUrl: result.rows.length > 0 ? result.rows[0].webhook_url : null,
+            updatedAt: result.rows.length > 0 ? result.rows[0].updated_at : null
+        });
+    } catch (error) {
+        console.error('❌ Error fetching webhook URL:', error);
+        res.status(500).json({ error: 'Error fetching webhook URL' });
+    }
+});
+
+// Set webhook URL
+app.post('/api/admin/webhook', express.json(), async (req, res) => {
+    try {
+        const { webhookUrl } = req.body;
+        if (!webhookUrl) {
+            return res.status(400).json({ error: 'Webhook URL is required' });
+        }
+        
+        // Validate URL format
+        try {
+            new URL(webhookUrl);
+        } catch {
+            return res.status(400).json({ error: 'Invalid URL format' });
+        }
+        
+        // Delete existing webhook and insert new one (only keep one)
+        await pool.query('DELETE FROM webhook_config');
+        await pool.query(`
+            INSERT INTO webhook_config (webhook_url, updated_at)
+            VALUES ($1, CURRENT_TIMESTAMP)
+        `, [webhookUrl]);
+        
+        res.json({ success: true, message: 'Webhook URL saved successfully' });
+    } catch (error) {
+        console.error('❌ Error saving webhook URL:', error);
+        res.status(500).json({ error: 'Error saving webhook URL' });
+    }
+});
+
+// Send contact data to webhook (for manual "Add to CRM" button)
+app.post('/api/admin/send-to-webhook', express.json(), async (req, res) => {
+    try {
+        const { contactId } = req.body;
+        if (!contactId) {
+            return res.status(400).json({ error: 'Contact ID is required' });
+        }
+        
+        // Get webhook URL
+        const webhookResult = await pool.query(`
+            SELECT webhook_url FROM webhook_config ORDER BY id DESC LIMIT 1
+        `);
+        
+        if (webhookResult.rows.length === 0 || !webhookResult.rows[0].webhook_url) {
+            return res.status(400).json({ error: 'Webhook URL is not configured. Please set it in the admin panel.' });
+        }
+        
+        // Get call data
+        DB_HELPERS.getCallByDatabaseId(contactId, async (err, call) => {
+            if (err || !call) {
+                return res.status(404).json({ error: 'Contact not found' });
+            }
+            
+            // Get assistant name from campaign or assistant table
+            let assistantName = '';
+            if (call.campaignId) {
+                const campaignMeta = await DB_HELPERS.getCampaignById(call.campaignId);
+                if (campaignMeta && campaignMeta.assistant_name) {
+                    assistantName = campaignMeta.assistant_name;
+                }
+            }
+            
+            // If not found from campaign, try to get from assistant table
+            if (!assistantName && call.assistantId) {
+                const assistant = await DB_HELPERS.getAssistantById(call.assistantId);
+                if (assistant && assistant.name) {
+                    assistantName = assistant.name;
+                }
+            }
+            
+            // Prepare webhook payload
+            const payload = {
+                contact_name: call.contact.name,
+                phone_number: call.contact.phone,
+                address: call.contact.address || '',
+                call_outcome: call.callOutcome || call.endedReason || '',
+                call_summary: call.summary || '',
+                recording: call.recordingUrl || '',
+                Agent: assistantName || ''
+            };
+            
+            // Send to webhook
+            try {
+                const webhookResponse = await axios.post(webhookResult.rows[0].webhook_url, payload, {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 10000,
+                    validateStatus: () => true // Don't throw on any status code
+                });
+                
+                // Return the status code from the webhook response
+                res.json({ 
+                    success: webhookResponse.status === 200,
+                    status: webhookResponse.status,
+                    message: webhookResponse.status === 200 
+                        ? 'Contact data sent to webhook successfully' 
+                        : `Webhook returned status ${webhookResponse.status}`
+                });
+            } catch (webhookError) {
+                console.error('❌ Error sending to webhook:', webhookError.message);
+                res.status(500).json({ 
+                    success: false,
+                    status: null,
+                    error: 'Failed to send data to webhook', 
+                    details: webhookError.message 
+                });
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error sending to webhook:', error);
+        res.status(500).json({ error: 'Error sending to webhook' });
+    }
 });
 
 // Update contact information

@@ -988,13 +988,14 @@
         }
 
         /* Table action buttons */
-        .call-btn, .retry-single-btn {
+        .call-btn, .retry-single-btn, .crm-btn {
             padding: 6px 12px;
             border: none;
             border-radius: 6px;
             cursor: pointer;
             font-size: 12px;
             transition: background 0.2s;
+            margin-right: 4px;
         }
 
         .call-btn {
@@ -1013,6 +1014,20 @@
 
         .retry-single-btn:hover {
             background: #e0a800;
+        }
+
+        .crm-btn {
+            background: #6f42c1;
+            color: white;
+        }
+
+        .crm-btn:hover {
+            background: #5a32a3;
+        }
+
+        .crm-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
         }
 
         /* Checkbox styling */
@@ -1037,7 +1052,10 @@
                 <img src="https://statics.myclickfunnels.com/workspace/JGrmMP/image/16250065/file/6ef0e742dde95ca50252f19c9d65eecd.png" alt="LeadCallr logo">
                 <span class="tagline">Sidd Sur's Workspace</span>
             </div>
-            <button id="logoutBtn" class="logout-button">Log Out</button>
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <a href="/admin" class="btn btn-primary" style="text-decoration: none; padding: 10px 22px; border-radius: 10px; font-size: 14px; font-weight: 600; background: linear-gradient(135deg, #6f42c1, #5a32a3); color: white; box-shadow: 0 12px 30px rgba(111, 66, 193, 0.35); transition: transform 0.18s ease, box-shadow 0.18s ease;">Admin</a>
+                <button id="logoutBtn" class="logout-button">Log Out</button>
+            </div>
         </div>
         <section class="intro-card glass-card">
             <h1>LeadCallr AI App</h1>
@@ -1355,7 +1373,6 @@
                         <th>Outcome</th>
                         <th>Summary</th>
                         <th>Recording</th>
-                        <th>Details</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -1459,6 +1476,8 @@
         let analyticsOutcomeChart = null;
         let availableAssistants = [];
         let availablePhoneNumbers = [];
+        let addedToCRM = new Set(); // Track contacts that have been successfully added to CRM (status 200)
+        let failedCRM = new Set(); // Track contacts that failed to add to CRM (for "Try Again" button)
 
         const logoutBtn = document.getElementById('logoutBtn');
         if (logoutBtn) {
@@ -2111,19 +2130,6 @@
             row.dataset.status = statusValue;
             row.dataset.outcome = normalizedOutcome;
             
-            // Build basic details
-            let detailsDisplay = call.message || '-';
-            if (call.status === 'completed' && call.outcomeReceived) {
-                let details = [];
-                if (call.endedReason) details.push(`Reason: ${call.endedReason}`);
-                if (call.duration) details.push(`Duration: ${Math.round(call.duration)}s`);
-                // intentionally omit cost from display
-                
-                if (details.length > 0) {
-                    detailsDisplay = details.join(' | ');
-                }
-            }
-            
             // Format summary - use callId for stable identification across updates
             let summaryDisplay = '-';
             if (call.summary) {
@@ -2180,12 +2186,28 @@
             }
             
             // Create actions column
-            let actionsHtml = '-';
+            let actionsHtml = [];
             if (canCallManually && dbCallId) {
-                actionsHtml = `<button class="call-btn" onclick="callLead(${dbCallId})" title="Call this lead">📞 Call</button>`;
+                actionsHtml.push(`<button class="call-btn" onclick="callLead(${dbCallId})" title="Call this lead">📞 Call</button>`);
             } else if (canRetry && dbCallId) {
-                actionsHtml = `<button class="retry-single-btn" onclick="retrySingleCall(${dbCallId})" title="Retry this call">🔄 Retry</button>`;
+                actionsHtml.push(`<button class="retry-single-btn" onclick="retrySingleCall(${dbCallId})" title="Retry this call">🔄 Retry</button>`);
             }
+            
+            // Add "Add to CRM" button for completed calls
+            if (call.status === 'completed' && dbCallId) {
+                if (addedToCRM.has(dbCallId)) {
+                    // Successfully added (status 200) - show disabled "Added" button
+                    actionsHtml.push(`<button class="crm-btn" disabled style="background: #6c757d; cursor: not-allowed;" title="Already added to CRM">✓ Added</button>`);
+                } else if (failedCRM.has(dbCallId)) {
+                    // Failed to add - show "Try Again" button
+                    actionsHtml.push(`<button class="crm-btn" onclick="addToCRM(${dbCallId})" title="Retry sending to CRM" style="background: #dc3545;">🔄 Try Again</button>`);
+                } else {
+                    // Not yet attempted - show active "Add to CRM" button
+                    actionsHtml.push(`<button class="crm-btn" onclick="addToCRM(${dbCallId})" title="Send to CRM">📤 Add to CRM</button>`);
+                }
+            }
+            
+            const actionsDisplay = actionsHtml.length > 0 ? actionsHtml.join(' ') : '-';
             
             row.innerHTML = `
                 <td>${checkbox}</td>
@@ -2197,8 +2219,7 @@
                 <td>${outcomeDisplay}</td>
                 <td>${summaryDisplay}</td>
                 <td>${recordingDisplay}</td>
-                <td>${detailsDisplay}</td>
-                <td>${actionsHtml}</td>
+                <td>${actionsDisplay}</td>
             `;
             
             // Store database ID in row data attribute
@@ -2707,6 +2728,77 @@
             }
 
             await retrySelectedCalls([dbCallId]);
+        }
+
+        // Add to CRM
+        async function addToCRM(dbCallId) {
+            if (!dbCallId) {
+                alert('Invalid contact ID');
+                return;
+            }
+
+            // Check if already successfully added (status 200)
+            if (addedToCRM.has(dbCallId)) {
+                return; // Already added successfully, do nothing
+            }
+
+            const button = event.target;
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Sending...';
+
+            try {
+                const response = await fetch('/api/admin/send-to-webhook', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ contactId: dbCallId })
+                });
+
+                const data = await response.json();
+
+                // Check if webhook returned status 200
+                if (response.ok && data.success && data.status === 200) {
+                    // Success - mark as added and remove from failed list
+                    addedToCRM.add(dbCallId);
+                    failedCRM.delete(dbCallId);
+                    
+                    // Update button to "Added" state permanently
+                    button.textContent = '✓ Added';
+                    button.style.background = '#6c757d';
+                    button.style.cursor = 'not-allowed';
+                    button.onclick = null; // Remove onclick handler
+                    button.title = 'Already added to CRM';
+                    button.disabled = true;
+                } else {
+                    // Failed - mark as failed and show "Try Again"
+                    failedCRM.add(dbCallId);
+                    addedToCRM.delete(dbCallId); // Remove from success list if it was there
+                    
+                    // Update button to "Try Again" state
+                    button.textContent = '🔄 Try Again';
+                    button.style.background = '#dc3545';
+                    button.disabled = false;
+                    button.title = 'Click to retry sending to CRM';
+                    
+                    // Show error message if available
+                    const errorMsg = data.error || data.message || `Webhook returned status ${data.status || 'unknown'}`;
+                    console.error('Failed to send to CRM:', errorMsg);
+                }
+            } catch (error) {
+                console.error('Error sending to CRM:', error);
+                
+                // Network error or other exception - mark as failed
+                failedCRM.add(dbCallId);
+                addedToCRM.delete(dbCallId);
+                
+                // Update button to "Try Again" state
+                button.textContent = '🔄 Try Again';
+                button.style.background = '#dc3545';
+                button.disabled = false;
+                button.title = 'Click to retry sending to CRM';
+            }
         }
 
         // Retry selected calls
