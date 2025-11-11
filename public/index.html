@@ -732,6 +732,34 @@
             font-weight: 700;
             color: #0d7bff;
         }
+        .search-container {
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        
+        .contact-search-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #c7d9ef;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: rgba(255, 255, 255, 0.95);
+            color: var(--text-primary);
+            box-sizing: border-box;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .contact-search-input:focus {
+            outline: none;
+            border-color: #0d7bff;
+            box-shadow: 0 0 0 3px rgba(13, 123, 255, 0.1);
+        }
+        
+        .contact-search-input::placeholder {
+            color: #9aa5b1;
+        }
+        
         .calls-table-wrapper {
             width: 100%;
             overflow-x: auto;
@@ -1306,6 +1334,10 @@
         </div>
         <p id="progressText">0% complete</p>
         
+        <div class="search-container" style="margin-bottom: 20px;">
+            <input type="text" id="contactSearch" class="contact-search-input" placeholder="🔍 Search contacts by name or phone number..." autocomplete="off">
+        </div>
+        
         <div class="calls-table-wrapper">
             <table class="calls-table">
                 <thead>
@@ -1418,6 +1450,7 @@
         let allCampaigns = []; // Store all campaigns
         let currentStatusFilter = 'all';
         let currentOutcomeFilter = 'all';
+        let currentSearchQuery = ''; // Store current search query
         let analyticsAnswerChart = null;
         let analyticsOutcomeChart = null;
         let availableAssistants = [];
@@ -1443,6 +1476,15 @@
             console.log('🔄 Page loaded, checking for existing campaigns...');
             await loadCallResources();
             await loadCampaignsAndStatus();
+            
+            // Set up search input event listener
+            const searchInput = document.getElementById('contactSearch');
+            if (searchInput) {
+                searchInput.addEventListener('input', function(e) {
+                    currentSearchQuery = e.target.value;
+                    applyFilters();
+                });
+            }
         });
         
         function setHelperText(id, message, isError = false) {
@@ -2152,6 +2194,12 @@
                 row.dataset.dbCallId = call.id;
             }
             
+            // Store contact name and phone for search filtering (normalize for case-insensitive search)
+            const contactName = (call.contact.name || '').toLowerCase().trim();
+            const contactPhone = (call.contact.phone || '').toLowerCase().trim();
+            row.dataset.contactName = contactName;
+            row.dataset.contactPhone = contactPhone;
+            
             return row;
         }
         
@@ -2324,6 +2372,8 @@
         
         function applyFilters() {
             const rows = document.querySelectorAll('#callsTableBody tr');
+            const searchQuery = currentSearchQuery.toLowerCase().trim();
+            
             rows.forEach(row => {
                 const statusValue = row.dataset.status || 'unknown';
                 const outcomeValue = row.dataset.outcome || 'unknown';
@@ -2331,7 +2381,20 @@
                 const statusMatches = currentStatusFilter === 'all' || statusValue === currentStatusFilter;
                 const outcomeMatches = currentOutcomeFilter === 'all' || outcomeValue === currentOutcomeFilter;
                 
-                row.style.display = statusMatches && outcomeMatches ? '' : 'none';
+                // Search filter: check name and phone using data attributes (more efficient)
+                let searchMatches = true;
+                if (searchQuery) {
+                    const contactName = row.dataset.contactName || '';
+                    const contactPhone = row.dataset.contactPhone || '';
+                    
+                    // Check if search query matches name or phone (case-insensitive)
+                    const nameMatch = contactName.includes(searchQuery);
+                    const phoneMatch = contactPhone.includes(searchQuery);
+                    
+                    searchMatches = nameMatch || phoneMatch;
+                }
+                
+                row.style.display = statusMatches && outcomeMatches && searchMatches ? '' : 'none';
             });
         }
 
