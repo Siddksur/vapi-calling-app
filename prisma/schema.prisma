@@ -1,0 +1,462 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// MULTI-TENANCY CORE MODELS
+// ============================================
+
+enum PlanType {
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum UserRole {
+  OWNER
+  CLIENT
+  // Future roles (not used initially but designed for expansion):
+  // CLIENT_ADMIN
+  // CLIENT_USER
+  // CLIENT_VIEWER
+}
+
+enum CallStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum CallOutcome {
+  SUCCESS
+  NO_ANSWER
+  BUSY
+  FAILED
+  VOICEMAIL
+  OTHER
+}
+
+// Tenant (Client) Model
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  planType    PlanType @default(BASIC)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // VAPI Configuration (per-tenant credentials)
+  vapiPrivateKey     String?  @map("vapi_private_key") @db.Text // Encrypted/hashed in production
+  vapiOrganizationId String?  @map("vapi_organization_id") @db.VarChar(255)
+  vapiBaseUrl        String?  @default("https://api.vapi.ai") @map("vapi_base_url") @db.VarChar(255)
+  
+  // Optional: Default assistant/phone number IDs (can be overridden per campaign)
+  vapiDefaultAssistantId  String? @map("vapi_default_assistant_id") @db.VarChar(255)
+  vapiDefaultPhoneNumberId String? @map("vapi_default_phone_number_id") @db.VarChar(255)
+
+  // Relations
+  users       User[]
+  campaigns   Campaign[]
+  campaignTemplates CampaignTemplate[]
+  calls       Call[]
+  assistants  Assistant[]
+  phoneNumbers PhoneNumber[]
+  contacts    Contact[]
+  subscription Subscription?
+  features    TenantFeature[]
+  usageRecords UsageRecord[]
+  tags        Tag[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("tenants")
+}
+
+// User Model (Simplified: OWNER or CLIENT)
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  password  String // Hashed password
+  role      UserRole @default(CLIENT)
+  tenantId  String?  // null for OWNER, set for CLIENT
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // NextAuth required fields
+  accounts  Account[]
+  sessions  Session[]
+
+  @@index([email])
+  @@index([tenantId])
+  @@index([role])
+  @@map("users")
+}
+
+// NextAuth Models (required for NextAuth.js)
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// CAMPAIGN & CALL MODELS
+// ============================================
+
+model Campaign {
+  id            String    @id @db.VarChar(255) // Legacy uses VARCHAR, not UUID
+  tenantId      String    @map("tenantId")
+  assistantId   String    @map("assistant_id") @db.VarChar(255)
+  phoneNumberId String    @map("phone_number_id") @db.VarChar(255)
+  name          String?
+  description   String?
+  isActive      Boolean   @default(true) @map("isActive")
+  createdAt     DateTime? @default(now()) @map("createdAt")
+  updatedAt     DateTime? @updatedAt @map("updatedAt")
+  deletedAt     DateTime? @map("deletedAt") // Soft delete
+
+  // Enhanced scheduling fields
+  scheduleDays  Int[]     @map("scheduleDays") // Array of day numbers (0=Sunday, 6=Saturday)
+  scheduleFrequency String? @map("scheduleFrequency") // "daily", "weekly", "custom"
+  timeZone      String?   @default("UTC") @map("timeZone")
+  startTime     String?   @map("startTime") // HH:mm format
+  endTime       String?   @map("endTime") // HH:mm format
+  retryAttempts Int?      @default(1) @map("retry_attempts") // Number of times to call each contact throughout campaign lifetime
+
+  // Relations
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assistant     Assistant @relation(fields: [assistantId], references: [id])
+  phoneNumber   PhoneNumber @relation(fields: [phoneNumberId], references: [id])
+  calls         Call[]
+
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@index([isActive])
+  @@map("campaigns")
+}
+
+model CampaignTemplate {
+  id                String   @id @default(uuid())
+  tenantId          String
+  name              String
+  description       String?
+  
+  // Template configuration (assistantId and phoneNumberId are optional in templates)
+  assistantId       String?  @db.VarChar(255) // Optional: can be set when creating from template
+  phoneNumberId     String?  @db.VarChar(255) // Optional: can be set when creating from template
+  isActive          Boolean  @default(true)
+  
+  // Scheduling configuration
+  scheduleDays      Int[]
+  scheduleFrequency String?  // "daily", "weekly", "custom"
+  timeZone          String?  @default("UTC")
+  startTime         String?  // HH:mm format
+  endTime           String?  // HH:mm format
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assistant         Assistant? @relation(fields: [assistantId], references: [id])
+  phoneNumber       PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
+
+  @@index([tenantId])
+  @@map("campaign_templates")
+}
+
+model Call {
+  id                Int         @id @default(autoincrement()) // Legacy uses SERIAL/INTEGER
+  tenantId          String?     @map("tenantId")
+  campaignId       String?     @map("campaign_id")
+  contactName       String      @map("contact_name") @db.VarChar(255)
+  contactPhone      String      @map("contact_phone") @db.VarChar(50)
+  contactAddress    String?     @map("contact_address")
+  callId            String?     @map("call_id") @db.VarChar(255) // Vapi.ai call ID
+  status            String?     @default("scheduled") @map("status") @db.VarChar(50)
+  scheduledTime     DateTime?   @map("scheduled_time")
+  scheduledTimeLocal String?    @map("scheduled_time_local") @db.VarChar(50)
+  endedReason       String?     @map("ended_reason") @db.VarChar(255)
+  callOutcome       String?     @map("call_outcome") @db.VarChar(255)
+  duration          Decimal?    @map("duration") @db.Decimal(10, 2)
+  cost              Decimal?    @map("cost") @db.Decimal(10, 4)
+  successEvaluation String?     @map("success_evaluation") @db.VarChar(50)
+  structuredData    Json?       @map("structured_data") // JSONB for flexible data
+  summary           String?     @map("summary")
+  recordingUrl      String?     @map("recording_url")
+  actualCallTime    String?     @map("actual_call_time") @db.VarChar(50)
+  message           String?     @map("message")
+  timestamp         DateTime?   @default(now()) @map("timestamp")
+  indexPosition     Int?        @map("index_position")
+  outcomeReceived   Boolean?    @default(false) @map("outcome_received")
+  isRetry           Boolean?    @default(false) @map("is_retry")
+  originalCallId    String?     @map("original_call_id") @db.VarChar(255)
+  retryCount        Int?        @default(0) @map("retry_count")
+  assistantId       String?     @map("assistant_id") @db.VarChar(255)
+  phoneNumberId     String?     @map("phone_number_id") @db.VarChar(255)
+  contactId         String?
+
+  // Relations
+  tenant            Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign          Campaign?   @relation(fields: [campaignId], references: [id])
+  assistant         Assistant?  @relation(fields: [assistantId], references: [id])
+  phoneNumber       PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
+  contact           Contact?    @relation(fields: [contactId], references: [id])
+
+  @@index([campaignId], map: "idx_calls_campaign_id")
+  @@index([tenantId])
+  @@index([status])
+  @@index([timestamp])
+  @@index([callId])
+  @@map("calls")
+}
+
+// ============================================
+// ASSISTANT & PHONE NUMBER MODELS
+// ============================================
+
+model Assistant {
+  id          String    @id @db.VarChar(255) // Vapi.ai assistant ID
+  tenantId    String?   @map("tenantId")
+  name        String    @db.VarChar(255)
+  description String?
+  isActive    Boolean?  @default(true) @map("is_active")
+  createdAt   DateTime? @default(now()) @map("created_at")
+  updatedAt   DateTime? @updatedAt @map("updated_at")
+
+  // Relations
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaigns   Campaign[]
+  campaignTemplates CampaignTemplate[]
+  calls       Call[]
+
+  @@index([tenantId])
+  @@index([isActive])
+  @@map("assistants")
+}
+
+model PhoneNumber {
+  id          String    @id @db.VarChar(255) // Vapi.ai phone number ID
+  tenantId   String?   @map("tenantId")
+  displayName String    @map("display_name") @db.VarChar(255)
+  phoneNumber String?   @map("phone_number") @db.VarChar(50)
+  isActive    Boolean?  @default(true) @map("is_active")
+  createdAt   DateTime? @default(now()) @map("created_at")
+  updatedAt   DateTime? @updatedAt @map("updated_at")
+
+  // Relations
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaigns   Campaign[]
+  campaignTemplates CampaignTemplate[]
+  calls       Call[]
+
+  @@index([tenantId])
+  @@index([isActive])
+  @@map("phone_numbers")
+}
+
+// ============================================
+// CRM MODELS
+// ============================================
+
+model Contact {
+  id          String   @id @default(uuid())
+  tenantId    String
+  firstName   String?
+  lastName    String?
+  email       String?
+  phone       String
+  address     String?  @db.Text
+  notes       String?  @db.Text
+  leadSource  String?  // e.g., "Facebook Ads", "Manual", "CSV Import"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tags        ContactTag[]
+  calls       Call[]
+
+  @@index([tenantId])
+  @@index([phone])
+  @@index([email])
+  @@index([leadSource])
+  @@map("contacts")
+}
+
+model Tag {
+  id        String   @id @default(uuid())
+  tenantId String
+  name      String
+  color     String?  // Hex color for UI
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contacts  ContactTag[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("tags")
+}
+
+model ContactTag {
+  id        String   @id @default(uuid())
+  contactId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  // Relations
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tagId])
+  @@index([contactId])
+  @@index([tagId])
+  @@map("contact_tags")
+}
+
+// ============================================
+// BILLING & STRIPE MODELS
+// ============================================
+
+model Subscription {
+  id                String   @id @default(uuid())
+  tenantId          String   @unique
+  stripeCustomerId  String?  @unique
+  stripeSubscriptionId String? @unique
+  stripePriceId     String?
+  status            String?  // active, canceled, past_due, etc.
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+  @@map("subscriptions")
+}
+
+model StripeProduct {
+  id                String   @id @default(uuid())
+  stripeProductId   String   @unique
+  stripePriceId     String   @unique
+  name              String
+  description       String?  @db.Text
+  type              String   // "minute_billing" or "one_time"
+  amount            Decimal  @db.Decimal(10, 2) // Price in cents
+  currency          String   @default("usd")
+  isActive          Boolean  @default(true)
+  metadata          Json?    // Additional product metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("stripe_products")
+}
+
+model UsageRecord {
+  id            String   @id @default(uuid())
+  tenantId      String
+  subscriptionId String?
+  productId     String?  // Reference to StripeProduct
+  quantity      Int      // e.g., minutes used
+  amount        Decimal  @db.Decimal(10, 2) // Cost
+  periodStart   DateTime
+  periodEnd     DateTime
+  createdAt     DateTime @default(now())
+
+  // Relations
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([periodStart, periodEnd])
+  @@map("usage_records")
+}
+
+// ============================================
+// FEATURE FLAGS & CONFIGURATION
+// ============================================
+
+model TenantFeature {
+  id          String   @id @default(uuid())
+  tenantId    String
+  featureKey  String   // e.g., "advanced_analytics", "crm_integration"
+  isEnabled   Boolean  @default(false)
+  metadata    Json?    // Feature-specific configuration
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, featureKey])
+  @@index([tenantId])
+  @@map("tenant_features")
+}
+
+// Legacy table (kept for compatibility)
+model webhook_config {
+  id          Int       @id @default(autoincrement())
+  webhook_url String
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
+  
+  @@map("webhook_config")
+}
