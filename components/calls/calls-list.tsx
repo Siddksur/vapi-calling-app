@@ -36,7 +36,12 @@ interface Call {
   cost: number | null
   summary: string | null
   recordingUrl: string | null
+  endedReason: string | null
+  successEvaluation: string | null
+  structuredData: any
   timestamp: Date | null
+  scheduledTime: Date | null
+  actualCallTime: string | null
   campaign: { id: string; name: string | null } | null
   assistant: { id: string; name: string } | null
   phoneNumber: { id: string; displayName: string; phoneNumber: string | null } | null
