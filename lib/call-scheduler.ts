@@ -118,23 +118,10 @@ async function shouldCallContact(
       where: {
         campaignId,
         contactPhone,
-        OR: [
-          // Check by timestamp if set
-          {
-            timestamp: {
-              gte: today,
-              lt: tomorrow
-            }
-          },
-          // OR check by createdAt if timestamp is null (for newly created calls)
-          {
-            createdAt: {
-              gte: today,
-              lt: tomorrow
-            },
-            timestamp: null
-          }
-        ],
+        timestamp: {
+          gte: today,
+          lt: tomorrow
+        },
         status: {
           in: ["completed", "calling", "in_progress"]
         }
@@ -156,23 +143,10 @@ async function shouldCallContact(
         where: {
           campaignId,
           contactPhone,
-          OR: [
-            // Check by timestamp if set
-            {
-              timestamp: {
-                gte: today,
-                lt: tomorrow
-              }
-            },
-            // OR check by createdAt if timestamp is null (for newly created calls)
-            {
-              createdAt: {
-                gte: today,
-                lt: tomorrow
-              },
-              timestamp: null
-            }
-          ],
+          timestamp: {
+            gte: today,
+            lt: tomorrow
+          },
           status: {
             in: ["completed", "calling", "in_progress"]
           }
@@ -192,21 +166,9 @@ async function shouldCallContact(
         where: {
           campaignId,
           contactPhone,
-          OR: [
-            // Check by timestamp if set
-            {
-              timestamp: {
-                gte: weekStart
-              }
-            },
-            // OR check by createdAt if timestamp is null (for newly created calls)
-            {
-              createdAt: {
-                gte: weekStart
-              },
-              timestamp: null
-            }
-          ],
+          timestamp: {
+            gte: weekStart
+          },
           status: {
             in: ["completed", "calling", "in_progress"]
           }
@@ -226,23 +188,10 @@ async function shouldCallContact(
         where: {
           campaignId,
           contactPhone,
-          OR: [
-            // Check by timestamp if set
-            {
-              timestamp: {
-                gte: todayDefault,
-                lt: tomorrowDefault
-              }
-            },
-            // OR check by createdAt if timestamp is null (for newly created calls)
-            {
-              createdAt: {
-                gte: todayDefault,
-                lt: tomorrowDefault
-              },
-              timestamp: null
-            }
-          ],
+          timestamp: {
+            gte: todayDefault,
+            lt: tomorrowDefault
+          },
           status: {
             in: ["completed", "calling", "in_progress"]
           }
