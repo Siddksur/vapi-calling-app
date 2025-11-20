@@ -107,8 +107,8 @@ export async function POST(request: NextRequest) {
     if (transcript || metadata) {
       updateData.structuredData = {
         transcript,
-        ...metadata, // Use metadata directly (it's already structured data)
-        ...call.structuredData // Preserve existing data
+        ...(metadata && typeof metadata === 'object' ? metadata : {}), // Use metadata directly (it's already structured data)
+        ...(call.structuredData && typeof call.structuredData === 'object' ? call.structuredData : {}) // Preserve existing data
       }
     }
 
