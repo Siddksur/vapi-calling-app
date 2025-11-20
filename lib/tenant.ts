@@ -14,7 +14,7 @@ export async function getTenantId(): Promise<string | null> {
   }
 
   // OWNER can access all tenants (returns null to indicate no filter)
-  if (session.user.role === "OWNER" || session.user.role === UserRole.OWNER) {
+  if (session.user.role === UserRole.OWNER) {
     return null
   }
 
