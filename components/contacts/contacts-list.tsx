@@ -18,9 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Search, Edit, Trash2, Phone, Mail, MapPin, Eye } from "lucide-react"
+import { Plus, Search, Edit, Trash2, Phone, Mail, MapPin, Eye, Upload } from "lucide-react"
 import { ContactDialog } from "./contact-dialog"
 import { ManualCallDialog } from "./manual-call-dialog"
+import { CsvImportDialog } from "./csv-import-dialog"
 import { toast } from "sonner"
 import Link from "next/link"
 
@@ -62,6 +63,7 @@ export function ContactsList({ initialContacts, initialPagination, initialTags =
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
   const [isManualCallDialogOpen, setIsManualCallDialogOpen] = useState(false)
   const [callingContact, setCallingContact] = useState<Contact | null>(null)
+  const [isCsvImportDialogOpen, setIsCsvImportDialogOpen] = useState(false)
 
   const fetchContacts = async (page = 1) => {
     setLoading(true)
@@ -198,10 +200,16 @@ export function ContactsList({ initialContacts, initialPagination, initialTags =
             </Select>
           )}
         </div>
-        <Button onClick={handleAdd}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Contact
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setIsCsvImportDialogOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import CSV
+          </Button>
+          <Button onClick={handleAdd}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Contact
+          </Button>
+        </div>
       </div>
 
       {/* Contacts Table */}
@@ -378,6 +386,18 @@ export function ContactsList({ initialContacts, initialPagination, initialTags =
           contact={callingContact}
         />
       )}
+
+      {/* CSV Import Dialog */}
+      <CsvImportDialog
+        open={isCsvImportDialogOpen}
+        onClose={(imported) => {
+          setIsCsvImportDialogOpen(false)
+          if (imported) {
+            // Refresh contacts list
+            fetchContacts(pagination.page)
+          }
+        }}
+      />
     </div>
   )
 }
