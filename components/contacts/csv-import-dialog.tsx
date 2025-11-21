@@ -344,14 +344,14 @@ export function CsvImportDialog({ open, onClose }: CsvImportDialogProps) {
                       <div>
                         <Label htmlFor="map-firstName">First Name</Label>
                         <Select
-                          value={mapping.firstName}
-                          onValueChange={(value) => setMapping({ ...mapping, firstName: value })}
+                          value={mapping.firstName || "none"}
+                          onValueChange={(value) => setMapping({ ...mapping, firstName: value === "none" ? "" : value })}
                         >
                           <SelectTrigger id="map-firstName">
                             <SelectValue placeholder="Select column..." />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">None</SelectItem>
+                            <SelectItem value="none">None</SelectItem>
                             {csvHeaders.map((header) => (
                               <SelectItem key={header} value={header}>
                                 {header}
@@ -364,14 +364,14 @@ export function CsvImportDialog({ open, onClose }: CsvImportDialogProps) {
                       <div>
                         <Label htmlFor="map-lastName">Last Name</Label>
                         <Select
-                          value={mapping.lastName}
-                          onValueChange={(value) => setMapping({ ...mapping, lastName: value })}
+                          value={mapping.lastName || "none"}
+                          onValueChange={(value) => setMapping({ ...mapping, lastName: value === "none" ? "" : value })}
                         >
                           <SelectTrigger id="map-lastName">
                             <SelectValue placeholder="Select column..." />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">None</SelectItem>
+                            <SelectItem value="none">None</SelectItem>
                             {csvHeaders.map((header) => (
                               <SelectItem key={header} value={header}>
                                 {header}
@@ -405,14 +405,14 @@ export function CsvImportDialog({ open, onClose }: CsvImportDialogProps) {
                       <div>
                         <Label htmlFor="map-email">Email</Label>
                         <Select
-                          value={mapping.email}
-                          onValueChange={(value) => setMapping({ ...mapping, email: value })}
+                          value={mapping.email || "none"}
+                          onValueChange={(value) => setMapping({ ...mapping, email: value === "none" ? "" : value })}
                         >
                           <SelectTrigger id="map-email">
                             <SelectValue placeholder="Select column..." />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">None</SelectItem>
+                            <SelectItem value="none">None</SelectItem>
                             {csvHeaders.map((header) => (
                               <SelectItem key={header} value={header}>
                                 {header}
@@ -425,14 +425,14 @@ export function CsvImportDialog({ open, onClose }: CsvImportDialogProps) {
                       <div className="col-span-2">
                         <Label htmlFor="map-address">Address</Label>
                         <Select
-                          value={mapping.address}
-                          onValueChange={(value) => setMapping({ ...mapping, address: value })}
+                          value={mapping.address || "none"}
+                          onValueChange={(value) => setMapping({ ...mapping, address: value === "none" ? "" : value })}
                         >
                           <SelectTrigger id="map-address">
                             <SelectValue placeholder="Select column..." />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">None</SelectItem>
+                            <SelectItem value="none">None</SelectItem>
                             {csvHeaders.map((header) => (
                               <SelectItem key={header} value={header}>
                                 {header}
