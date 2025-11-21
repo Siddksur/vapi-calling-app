@@ -285,11 +285,13 @@ export function CallsList({ initialCalls, initialPagination, initialStats, campa
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Outcomes</SelectItem>
-                <SelectItem value="success">Success</SelectItem>
-                <SelectItem value="no_answer">No Answer</SelectItem>
-                <SelectItem value="busy">Busy</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
                 <SelectItem value="voicemail">Voicemail</SelectItem>
+                <SelectItem value="interested">Interested</SelectItem>
+                <SelectItem value="callback">Callback</SelectItem>
+                <SelectItem value="not_interested">Not Interested</SelectItem>
+                <SelectItem value="do_not_call">Do Not Call</SelectItem>
+                <SelectItem value="unclear">Unclear</SelectItem>
+                <SelectItem value="send_listings">Send Listings</SelectItem>
               </SelectContent>
             </Select>
             <div className="flex gap-2">
