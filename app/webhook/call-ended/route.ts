@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the call in our database by VAPI call ID
-    const call = await prisma.call.findFirst({
+    let call = await prisma.call.findFirst({
       where: {
         callId: vapiCallId
       }
@@ -57,13 +57,20 @@ export async function POST(request: NextRequest) {
       // Try to find by contact phone and recent timestamp as fallback
       const phoneNumber = webhookData.call?.customer?.number || webhookData.customer?.number
       if (phoneNumber) {
+        const phoneDigits = phoneNumber.replace(/\D/g, "")
+        const last10Digits = phoneDigits.slice(-10)
+        
         const fallbackCall = await prisma.call.findFirst({
           where: {
-            contactPhone: {
-              contains: phoneNumber.replace(/\D/g, "").slice(-10) // Last 10 digits
-            },
+            OR: [
+              { contactPhone: { contains: last10Digits } },
+              { contactPhone: { contains: phoneDigits } }
+            ],
             timestamp: {
               gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+            },
+            status: {
+              in: ["calling", "in_progress", "scheduled"]
             }
           },
           orderBy: {
@@ -78,23 +85,17 @@ export async function POST(request: NextRequest) {
             where: { id: fallbackCall.id },
             data: { callId: vapiCallId }
           })
-          // Use the found call
-          const updatedCall = await prisma.call.findUnique({
+          // Re-fetch the call with updated callId
+          call = await prisma.call.findUnique({
             where: { id: fallbackCall.id }
           })
-          if (updatedCall) {
-            // Continue processing with the found call
-            const updateData: any = {
-              status: status === "ended" ? "completed" : status === "in-progress" ? "in_progress" : "calling",
-              timestamp: new Date()
-            }
-            // ... rest of update logic would go here, but for now just return
-            return NextResponse.json({ success: true, message: "Call found by fallback, updating..." })
-          }
         }
       }
       
-      return NextResponse.json({ success: true, message: "Call not found in database" })
+      if (!call) {
+        console.log(`❌ Could not find call for VAPI callId: ${vapiCallId}`)
+        return NextResponse.json({ success: true, message: "Call not found in database" })
+      }
     }
 
     // Map VAPI status to our status
