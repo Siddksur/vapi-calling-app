@@ -43,13 +43,15 @@ export async function updateStuckCalls() {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
 
     // Find calls stuck in "calling" or "in_progress" status
+    // Check calls older than 2 minutes (reduced from 5 minutes for faster updates)
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
     const stuckCalls = await prisma.call.findMany({
       where: {
         status: {
           in: ["calling", "in_progress"]
         },
         timestamp: {
-          lte: fiveMinutesAgo // Stuck for more than 5 minutes
+          lte: twoMinutesAgo // Stuck for more than 2 minutes
         },
         callId: {
           not: null // Must have VAPI call ID
@@ -65,15 +67,22 @@ export async function updateStuckCalls() {
       take: 50 // Limit to prevent overload
     })
 
-    console.log(`🔍 Found ${stuckCalls.length} stuck calls, checking status from VAPI...`)
+    console.log(`🔍 Found ${stuckCalls.length} stuck calls (older than 2 minutes), checking status from VAPI...`)
 
     for (const call of stuckCalls) {
-      if (!call.callId || !call.campaign?.tenantId) {
+      if (!call.callId) {
+        continue
+      }
+
+      // Get tenantId from campaign or directly from call
+      const tenantId = call.campaign?.tenantId || call.tenantId
+      if (!tenantId) {
+        console.error(`⚠️ Call ${call.id} has no tenantId`)
         continue
       }
 
       try {
-        const statusCheck = await checkVAPICallStatus(call.callId, call.campaign.tenantId)
+        const statusCheck = await checkVAPICallStatus(call.callId, tenantId)
 
         if (statusCheck.error) {
           console.error(`❌ Error checking call ${call.callId}:`, statusCheck.error)
