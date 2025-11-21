@@ -109,7 +109,16 @@ export async function makeVAPICall(params: MakeCallParams): Promise<{
           "customer.number": formattedPhone,
           address: contact.address || ""
         }
-      }
+      },
+      // Include serverUrl for webhook delivery (if not already configured at assistant level)
+      serverUrl: process.env.NEXTAUTH_URL 
+        ? `${process.env.NEXTAUTH_URL}/webhook/call-ended`
+        : undefined
+    }
+    
+    // Remove serverUrl if it's undefined to avoid sending null/undefined
+    if (!callData.serverUrl) {
+      delete callData.serverUrl
     }
 
     // DO NOT add organizationId to callData - it causes errors

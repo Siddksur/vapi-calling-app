@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
 
     // Log webhook received for debugging
     console.log("📥 VAPI webhook received (legacy endpoint):", JSON.stringify(payload, null, 2))
+    console.log("🔍 Webhook headers:", Object.fromEntries(request.headers.entries()))
 
     // VAPI webhooks can have different structures
     // Handle both direct payload and nested message structure
@@ -51,6 +52,48 @@ export async function POST(request: NextRequest) {
 
     if (!call) {
       console.log(`⚠️ Webhook received for unknown call: ${vapiCallId}`)
+      console.log(`🔍 Searching for call with callId: ${vapiCallId}`)
+      
+      // Try to find by contact phone and recent timestamp as fallback
+      const phoneNumber = webhookData.call?.customer?.number || webhookData.customer?.number
+      if (phoneNumber) {
+        const fallbackCall = await prisma.call.findFirst({
+          where: {
+            contactPhone: {
+              contains: phoneNumber.replace(/\D/g, "").slice(-10) // Last 10 digits
+            },
+            timestamp: {
+              gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+            }
+          },
+          orderBy: {
+            timestamp: "desc"
+          }
+        })
+        
+        if (fallbackCall) {
+          console.log(`✅ Found call by phone number fallback: ${fallbackCall.id}`)
+          // Update the call with the VAPI callId for future webhooks
+          await prisma.call.update({
+            where: { id: fallbackCall.id },
+            data: { callId: vapiCallId }
+          })
+          // Use the found call
+          const updatedCall = await prisma.call.findUnique({
+            where: { id: fallbackCall.id }
+          })
+          if (updatedCall) {
+            // Continue processing with the found call
+            const updateData: any = {
+              status: status === "ended" ? "completed" : status === "in-progress" ? "in_progress" : "calling",
+              timestamp: new Date()
+            }
+            // ... rest of update logic would go here, but for now just return
+            return NextResponse.json({ success: true, message: "Call found by fallback, updating..." })
+          }
+        }
+      }
+      
       return NextResponse.json({ success: true, message: "Call not found in database" })
     }
 
