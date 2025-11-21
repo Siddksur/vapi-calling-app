@@ -64,6 +64,9 @@ model Tenant {
   // Optional: Default assistant/phone number IDs (can be overridden per campaign)
   vapiDefaultAssistantId  String? @map("vapi_default_assistant_id") @db.VarChar(255)
   vapiDefaultPhoneNumberId String? @map("vapi_default_phone_number_id") @db.VarChar(255)
+  
+  // Custom variables to send to VAPI assistant (key-value pairs)
+  vapiCustomVariables Json? @map("vapi_custom_variables") // e.g., {"company": "Acme Corp", "region": "West"}
 
   // Relations
   users       User[]

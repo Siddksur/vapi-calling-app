@@ -5,12 +5,14 @@ interface VAPIConfig {
   privateKey: string
   organizationId: string | null
   baseUrl: string
+  customVariables?: Record<string, string> | null
 }
 
 interface Contact {
   name: string
   phone: string
   address?: string | null
+  email?: string | null
 }
 
 interface MakeCallParams {
@@ -31,7 +33,8 @@ export async function getVAPIConfig(tenantId: string): Promise<VAPIConfig | null
     select: {
       vapiPrivateKey: true,
       vapiOrganizationId: true,
-      vapiBaseUrl: true
+      vapiBaseUrl: true,
+      vapiCustomVariables: true
     }
   })
 
@@ -42,7 +45,8 @@ export async function getVAPIConfig(tenantId: string): Promise<VAPIConfig | null
   return {
     privateKey: tenant.vapiPrivateKey,
     organizationId: tenant.vapiOrganizationId,
-    baseUrl: tenant.vapiBaseUrl || "https://api.vapi.ai"
+    baseUrl: tenant.vapiBaseUrl || "https://api.vapi.ai",
+    customVariables: tenant.vapiCustomVariables as Record<string, string> | null
   }
 }
 
@@ -95,6 +99,21 @@ export async function makeVAPICall(params: MakeCallParams): Promise<{
 
     const formattedPhone = formatPhoneNumber(contact.phone)
 
+    // Build default variable values
+    const defaultVariables: Record<string, string> = {
+      name: contact.name || "",
+      "customer.number": formattedPhone,
+      address: contact.address || "",
+      email: contact.email || ""
+    }
+
+    // Merge with tenant's custom variables (custom variables override defaults if same key)
+    const customVariables = config.customVariables || {}
+    const variableValues = {
+      ...defaultVariables,
+      ...customVariables
+    }
+
     // Build call data - DO NOT include organizationId in the body
     // The API key in the Authorization header identifies the organization
     // NOTE: serverUrl should be configured in VAPI assistant settings, not sent per call
@@ -105,11 +124,7 @@ export async function makeVAPICall(params: MakeCallParams): Promise<{
         number: formattedPhone
       },
       assistantOverrides: {
-        variableValues: {
-          name: contact.name || "",
-          "customer.number": formattedPhone,
-          address: contact.address || ""
-        }
+        variableValues
       }
     }
 

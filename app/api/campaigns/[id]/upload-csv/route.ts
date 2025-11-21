@@ -32,8 +32,8 @@ function parseCSVLine(line: string): string[] {
   return result
 }
 
-async function parseCSV(fileBuffer: Buffer): Promise<Array<{ name: string; phone: string; address?: string }>> {
-  const contacts: Array<{ name: string; phone: string; address?: string }> = []
+async function parseCSV(fileBuffer: Buffer): Promise<Array<{ name: string; phone: string; address?: string; email?: string }>> {
+  const contacts: Array<{ name: string; phone: string; address?: string; email?: string }> = []
   const text = fileBuffer.toString("utf-8")
   const lines = text.split(/\r?\n/).filter(line => line.trim())
   
@@ -44,6 +44,7 @@ async function parseCSV(fileBuffer: Buffer): Promise<Array<{ name: string; phone
   const nameIndex = header.findIndex(h => /^name$/i.test(h.trim()))
   const phoneIndex = header.findIndex(h => /phone/i.test(h.trim()))
   const addressIndex = header.findIndex(h => /address/i.test(h.trim()))
+  const emailIndex = header.findIndex(h => /email/i.test(h.trim()))
 
   if (phoneIndex === -1) {
     throw new Error("CSV file must contain a 'Phone' column")
@@ -57,7 +58,8 @@ async function parseCSV(fileBuffer: Buffer): Promise<Array<{ name: string; phone
       contacts.push({
         name: nameIndex >= 0 && values[nameIndex] ? values[nameIndex] : "",
         phone: values[phoneIndex],
-        address: addressIndex >= 0 && values[addressIndex] ? values[addressIndex] : undefined
+        address: addressIndex >= 0 && values[addressIndex] ? values[addressIndex] : undefined,
+        email: emailIndex >= 0 && values[emailIndex] ? values[emailIndex] : undefined
       })
     }
   }
@@ -145,7 +147,7 @@ export async function POST(
 
     // Parse CSV file
     const fileBuffer = Buffer.from(await file.arrayBuffer())
-    let contacts: Array<{ name: string; phone: string; address?: string }> = []
+    let contacts: Array<{ name: string; phone: string; address?: string; email?: string }> = []
 
     try {
       const rawContacts = await parseCSV(fileBuffer)
@@ -156,7 +158,8 @@ export async function POST(
           contacts.push({
             name: contact.name.trim(),
             phone: formatPhoneNumber(contact.phone.trim()),
-            address: contact.address?.trim() || undefined
+            address: contact.address?.trim() || undefined,
+            email: contact.email?.trim() || undefined
           })
         }
       }
@@ -204,6 +207,7 @@ export async function POST(
               lastName,
               phone: contact.phone,
               address: contact.address || null,
+              email: contact.email || null,
               leadSource: "CSV Import"
             }
           })

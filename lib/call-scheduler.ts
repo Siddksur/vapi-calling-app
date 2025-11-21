@@ -252,6 +252,7 @@ export async function processScheduledCalls() {
         contactName: string
         contactPhone: string
         contactAddress: string | null
+        contactEmail: string | null
         callId?: number
       }> = []
 
@@ -301,11 +302,22 @@ export async function processScheduledCalls() {
         )
 
         if (shouldCall) {
+          // Get contact email if contactId exists
+          let contactEmail: string | null = null
+          if (call.contactId) {
+            const contact = await prisma.contact.findUnique({
+              where: { id: call.contactId },
+              select: { email: true }
+            })
+            contactEmail = contact?.email || null
+          }
+          
           contactsToCall.push({
             contactId: call.contactId,
             contactName: call.contactName,
             contactPhone: call.contactPhone,
             contactAddress: call.contactAddress,
+            contactEmail,
             callId: call.id
           })
         } else {
@@ -382,6 +394,7 @@ export async function processScheduledCalls() {
                 contactName: newCall.contactName,
                 contactPhone: contact.phone,
                 contactAddress: contact.address,
+                contactEmail: contact.email || null,
                 callId: newCall.id
               })
             }
@@ -417,7 +430,8 @@ export async function processScheduledCalls() {
           contact: {
             name: contact.contactName,
             phone: contact.contactPhone,
-            address: contact.contactAddress
+            address: contact.contactAddress,
+            email: contact.contactEmail || null
           },
           assistantId: campaign.assistantId,
           phoneNumberId: campaign.phoneNumberId,

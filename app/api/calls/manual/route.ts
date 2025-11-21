@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
       contactName,
       contactPhone,
       contactAddress,
+      contactEmail,
       assistantId,
       phoneNumberId
     } = body
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify contact exists and belongs to tenant (if contactId provided)
+    let finalContactEmail = contactEmail || null
     if (contactId) {
       const contact = await prisma.contact.findFirst({
         where: {
@@ -73,6 +75,11 @@ export async function POST(request: NextRequest) {
           { error: "Contact not found" },
           { status: 404 }
         )
+      }
+      
+      // Use contact's email if not provided in request
+      if (!finalContactEmail && contact.email) {
+        finalContactEmail = contact.email
       }
     }
 
@@ -98,7 +105,8 @@ export async function POST(request: NextRequest) {
       contact: {
         name: contactName || contactPhone,
         phone: contactPhone,
-        address: contactAddress || null
+        address: contactAddress || null,
+        email: finalContactEmail || null
       },
       assistantId,
       phoneNumberId,

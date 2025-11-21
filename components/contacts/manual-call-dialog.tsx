@@ -37,6 +37,7 @@ interface Contact {
   lastName: string | null
   phone: string
   address: string | null
+  email: string | null
 }
 
 interface ManualCallDialogProps {
@@ -110,6 +111,7 @@ export function ManualCallDialog({ open, onClose, contact }: ManualCallDialogPro
           contactName,
           contactPhone: contact.phone,
           contactAddress: contact.address,
+          contactEmail: contact.email,
           assistantId: data.assistantId,
           phoneNumberId: data.phoneNumberId,
         }),

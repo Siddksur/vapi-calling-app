@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth"
 import { DashboardLayout } from "@/components/layouts/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Tag, User, Bell, Shield } from "lucide-react"
+import { Tag, User, Bell, Shield, Code } from "lucide-react"
 import Link from "next/link"
 
 export default async function SettingsPage() {
@@ -63,6 +63,25 @@ export default async function SettingsPage() {
                 Account settings and profile management coming soon...
               </p>
             </CardContent>
+          </Card>
+
+          <Card className="cursor-pointer hover:shadow-md transition-shadow">
+            <Link href="/settings/vapi-variables">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Code className="h-5 w-5" />
+                  VAPI Custom Variables
+                </CardTitle>
+                <CardDescription>
+                  Add custom variables to send to your VAPI assistant
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-500">
+                  Configure custom variables that will be included in every call
+                </p>
+              </CardContent>
+            </Link>
           </Card>
 
           <Card>
