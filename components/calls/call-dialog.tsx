@@ -83,22 +83,34 @@ export function CallDialog({ open, onClose, call }: CallDialogProps) {
   const getOutcomeBadge = (outcome: string | null) => {
     if (!outcome) return <span className="text-gray-400">N/A</span>
     
-    if (outcome.toLowerCase() === "success") {
-      return (
-        <span className="flex items-center gap-1 text-green-600">
-          <CheckCircle2 className="h-4 w-4" />
-          <span>Success</span>
-        </span>
-      )
+    const outcomeLower = outcome.toLowerCase()
+    
+    // Map VAPI outcomes to display format
+    const outcomeMap: Record<string, { label: string; color: string; icon: typeof CheckCircle2 }> = {
+      voicemail: { label: "Voicemail", color: "text-blue-600", icon: CheckCircle2 },
+      interested: { label: "Interested", color: "text-green-600", icon: CheckCircle2 },
+      callback: { label: "Callback", color: "text-yellow-600", icon: Clock },
+      not_interested: { label: "Not Interested", color: "text-red-600", icon: XCircle },
+      do_not_call: { label: "Do Not Call", color: "text-red-600", icon: XCircle },
+      unclear: { label: "Unclear", color: "text-gray-600", icon: Clock },
+      send_listings: { label: "Send Listings", color: "text-green-600", icon: CheckCircle2 },
     }
     
+    const outcomeInfo = outcomeMap[outcomeLower]
+    const Icon = outcomeInfo?.icon || CheckCircle2
+    const color = outcomeInfo?.color || "text-gray-600"
+    const label = outcomeInfo?.label || outcome
+    
     return (
-      <span className="flex items-center gap-1 text-red-600">
-        <XCircle className="h-4 w-4" />
-        <span>{outcome}</span>
+      <span className={`flex items-center gap-1 ${color}`}>
+        <Icon className="h-4 w-4" />
+        <span>{label}</span>
       </span>
     )
   }
+  
+  // Extract transcript from structuredData
+  const transcript = call.structuredData?.transcript || null
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
@@ -264,6 +276,22 @@ export function CallDialog({ open, onClose, call }: CallDialogProps) {
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+              <Separator />
+            </>
+          )}
+
+          {/* Transcript */}
+          {transcript && (
+            <>
+              <div>
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Transcript
+                </h3>
+                <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+                  <p className="text-sm whitespace-pre-wrap">{transcript}</p>
                 </div>
               </div>
               <Separator />

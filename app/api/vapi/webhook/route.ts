@@ -30,8 +30,9 @@ export async function POST(request: NextRequest) {
     const transcript = webhookData.transcript || payload.transcript
     const duration = webhookData.durationSeconds || webhookData.duration || payload.duration
     const cost = webhookData.cost || payload.cost
-    const metadata = webhookData.analysis?.structuredData || webhookData.metadata || payload.metadata || {}
-    const callOutcome = webhookData.analysis?.structuredData?.CallOutcome || metadata?.CallOutcome
+    const structuredData = webhookData.analysis?.structuredData || webhookData.structuredData || payload.structuredData || {}
+    // Extract CallOutcome from structured data (preserve original format: voicemail, interested, callback, etc.)
+    const callOutcome = structuredData?.CallOutcome || webhookData.analysis?.structuredData?.CallOutcome
 
     if (!vapiCallId) {
       console.error("⚠️ Webhook missing call ID:", payload)
@@ -64,24 +65,21 @@ export async function POST(request: NextRequest) {
         break
       case "ended":
         mappedStatus = "completed"
-        // Determine outcome based on callOutcome from structured data, or endedReason
+        // Use CallOutcome from structured data (preserve original format: voicemail, interested, callback, not_interested, etc.)
         if (callOutcome) {
-          finalCallOutcome = callOutcome.toUpperCase()
+          finalCallOutcome = callOutcome // Keep original format (lowercase with underscores)
         } else if (endedReason) {
+          // Fallback to endedReason if CallOutcome not available
           const reasonLower = endedReason.toLowerCase()
-          if (reasonLower.includes("success") || reasonLower.includes("completed")) {
-            finalCallOutcome = "SUCCESS"
+          if (reasonLower.includes("voicemail")) {
+            finalCallOutcome = "voicemail"
           } else if (reasonLower.includes("no-answer") || reasonLower.includes("busy")) {
-            finalCallOutcome = "NO_ANSWER"
-          } else if (reasonLower.includes("voicemail")) {
-            finalCallOutcome = "VOICEMAIL"
+            finalCallOutcome = "no_answer"
           } else if (reasonLower.includes("failed")) {
-            finalCallOutcome = "FAILED"
+            finalCallOutcome = "failed"
           } else {
-            finalCallOutcome = "COMPLETED"
+            finalCallOutcome = "completed"
           }
-        } else {
-          finalCallOutcome = "COMPLETED"
         }
         break
       case "failed":
@@ -103,12 +101,18 @@ export async function POST(request: NextRequest) {
     if (duration !== undefined) updateData.duration = duration
     if (cost !== undefined) updateData.cost = cost
 
-    // Store structured data if available
-    if (transcript || metadata) {
+    // Store structured data and transcript
+    if (transcript || structuredData) {
+      updateData.structuredData = {
+        transcript: transcript || null,
+        ...(structuredData && typeof structuredData === 'object' ? structuredData : {}), // Store all structured data
+        ...(call.structuredData && typeof call.structuredData === 'object' ? call.structuredData : {}) // Preserve existing data
+      }
+    } else if (transcript) {
+      // If only transcript is available, store it
       updateData.structuredData = {
         transcript,
-        ...(metadata && typeof metadata === 'object' ? metadata : {}), // Use metadata directly (it's already structured data)
-        ...(call.structuredData && typeof call.structuredData === 'object' ? call.structuredData : {}) // Preserve existing data
+        ...(call.structuredData && typeof call.structuredData === 'object' ? call.structuredData : {})
       }
     }
 

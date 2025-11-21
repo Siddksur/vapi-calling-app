@@ -144,23 +144,26 @@ export function CallsList({ initialCalls, initialPagination, initialStats, campa
   }
 
   const getOutcomeBadge = (outcome: string | null) => {
-    if (!outcome) return <span className="text-gray-400">—</span>
+    if (!outcome) return <span className="text-gray-400">N/A</span>
     
-    if (outcome.toLowerCase() === "success") {
-      return (
-        <span className="flex items-center gap-1 text-green-600">
-          <CheckCircle2 className="h-3 w-3" />
-          <span className="text-xs">Success</span>
-        </span>
-      )
+    const outcomeLower = outcome.toLowerCase()
+    
+    // Map VAPI outcomes to display format
+    const outcomeMap: Record<string, { label: string; color: string }> = {
+      voicemail: { label: "Voicemail", color: "text-blue-600" },
+      interested: { label: "Interested", color: "text-green-600" },
+      callback: { label: "Callback", color: "text-yellow-600" },
+      not_interested: { label: "Not Interested", color: "text-red-600" },
+      do_not_call: { label: "Do Not Call", color: "text-red-600" },
+      unclear: { label: "Unclear", color: "text-gray-600" },
+      send_listings: { label: "Send Listings", color: "text-green-600" },
     }
     
-    return (
-      <span className="flex items-center gap-1 text-red-600">
-        <XCircle className="h-3 w-3" />
-        <span className="text-xs">{outcome}</span>
-      </span>
-    )
+    const outcomeInfo = outcomeMap[outcomeLower]
+    const color = outcomeInfo?.color || "text-gray-600"
+    const label = outcomeInfo?.label || outcome
+    
+    return <span className={color}>{label}</span>
   }
 
   const formatDuration = (seconds: number | null) => {

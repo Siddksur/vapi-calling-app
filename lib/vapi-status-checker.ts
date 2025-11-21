@@ -111,26 +111,21 @@ export async function updateStuckCalls() {
           case "ended":
             mappedStatus = "completed"
             const endedReason = vapiData.endedReason
-            // Use callOutcome from structured data first, then endedReason
+            // Use callOutcome from structured data (preserve original format: voicemail, interested, callback, etc.)
             if (callOutcomeFromData) {
-              callOutcome = callOutcomeFromData.toUpperCase()
+              callOutcome = callOutcomeFromData // Keep original format (lowercase with underscores)
             } else if (endedReason) {
+              // Fallback to endedReason if CallOutcome not available
               const reasonLower = endedReason.toLowerCase()
-              if (reasonLower.includes("success") ||
-                  reasonLower.includes("completed")) {
-                callOutcome = "SUCCESS"
-              } else if (reasonLower.includes("no-answer") ||
-                         reasonLower.includes("busy")) {
-                callOutcome = "NO_ANSWER"
-              } else if (reasonLower.includes("voicemail")) {
-                callOutcome = "VOICEMAIL"
+              if (reasonLower.includes("voicemail")) {
+                callOutcome = "voicemail"
+              } else if (reasonLower.includes("no-answer") || reasonLower.includes("busy")) {
+                callOutcome = "no_answer"
               } else if (reasonLower.includes("failed")) {
-                callOutcome = "FAILED"
+                callOutcome = "failed"
               } else {
-                callOutcome = "COMPLETED"
+                callOutcome = "completed"
               }
-            } else {
-              callOutcome = "COMPLETED"
             }
             break
           case "failed":
