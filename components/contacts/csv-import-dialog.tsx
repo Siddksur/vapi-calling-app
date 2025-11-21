@@ -251,7 +251,8 @@ export function CsvImportDialog({ open, onClose }: CsvImportDialogProps) {
         firstName: "",
         lastName: "",
         phone: "",
-        email: ""
+        email: "",
+        address: ""
       })
       setImportResult(null)
       if (fileInputRef.current) {
