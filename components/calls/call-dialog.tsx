@@ -122,9 +122,6 @@ export function CallDialog({ open, onClose, call }: CallDialogProps) {
       </span>
     )
   }
-  
-  // Extract transcript from structuredData
-  const transcript = call.structuredData?.transcript || null
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
