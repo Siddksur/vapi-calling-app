@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -11,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { CheckCircle2, XCircle, Clock, DollarSign, Phone, Calendar, FileText, ExternalLink } from "lucide-react"
+import { CheckCircle2, XCircle, Clock, DollarSign, Phone, Calendar, FileText, ExternalLink, ChevronDown, ChevronUp } from "lucide-react"
 
 interface Call {
   id: number
@@ -44,6 +45,19 @@ interface CallDialogProps {
 }
 
 export function CallDialog({ open, onClose, call }: CallDialogProps) {
+  const [transcriptExpanded, setTranscriptExpanded] = useState(false)
+  
+  // Extract transcript from structuredData
+  const transcript = call.structuredData?.transcript || null
+  
+  // Split transcript into lines for preview
+  const transcriptLines = transcript ? transcript.split('\n') : []
+  const previewLines = 3
+  const showPreview = transcriptLines.length > previewLines && !transcriptExpanded
+  const displayTranscript = showPreview 
+    ? transcriptLines.slice(0, previewLines).join('\n') + '\n...'
+    : transcript
+
   const formatDuration = (seconds: number | null) => {
     if (!seconds) return "N/A"
     const mins = Math.floor(seconds / 60)
@@ -291,7 +305,27 @@ export function CallDialog({ open, onClose, call }: CallDialogProps) {
                   Transcript
                 </h3>
                 <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
-                  <p className="text-sm whitespace-pre-wrap">{transcript}</p>
+                  <p className="text-sm whitespace-pre-wrap">{displayTranscript}</p>
+                  {transcriptLines.length > previewLines && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setTranscriptExpanded(!transcriptExpanded)}
+                      className="mt-2 w-full"
+                    >
+                      {transcriptExpanded ? (
+                        <>
+                          <ChevronUp className="h-4 w-4 mr-2" />
+                          Show Less
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="h-4 w-4 mr-2" />
+                          See More
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
               </div>
               <Separator />
@@ -312,15 +346,6 @@ export function CallDialog({ open, onClose, call }: CallDialogProps) {
             </>
           )}
 
-          {/* Structured Data */}
-          {call.structuredData && (
-            <div>
-              <h3 className="text-lg font-semibold mb-3">Structured Data</h3>
-              <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded text-xs overflow-auto max-h-64">
-                {JSON.stringify(call.structuredData, null, 2)}
-              </pre>
-            </div>
-          )}
 
           {/* Recording */}
           {call.recordingUrl && (
