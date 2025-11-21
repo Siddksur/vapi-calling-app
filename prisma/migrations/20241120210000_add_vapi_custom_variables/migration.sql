@@ -1,3 +1,3 @@
--- Add vapiCustomVariables to Tenant table
-ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "vapi_custom_variables" JSONB;
+-- Add vapiCustomVariables to tenants table
+ALTER TABLE "tenants" ADD COLUMN IF NOT EXISTS "vapi_custom_variables" JSONB;
 
