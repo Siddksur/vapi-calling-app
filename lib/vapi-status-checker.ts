@@ -96,6 +96,10 @@ export async function updateStuckCalls() {
         let mappedStatus = call.status
         let callOutcome = call.callOutcome
 
+        // Extract call outcome from structured data if available
+        const structuredData = vapiData.analysis?.structuredData || vapiData.structuredData
+        const callOutcomeFromData = structuredData?.CallOutcome
+
         switch (vapiStatus) {
           case "queued":
           case "ringing":
@@ -107,18 +111,26 @@ export async function updateStuckCalls() {
           case "ended":
             mappedStatus = "completed"
             const endedReason = vapiData.endedReason
-            if (endedReason) {
-              if (endedReason.toLowerCase().includes("success") ||
-                  endedReason.toLowerCase().includes("completed")) {
+            // Use callOutcome from structured data first, then endedReason
+            if (callOutcomeFromData) {
+              callOutcome = callOutcomeFromData.toUpperCase()
+            } else if (endedReason) {
+              const reasonLower = endedReason.toLowerCase()
+              if (reasonLower.includes("success") ||
+                  reasonLower.includes("completed")) {
                 callOutcome = "SUCCESS"
-              } else if (endedReason.toLowerCase().includes("no-answer") ||
-                         endedReason.toLowerCase().includes("busy")) {
+              } else if (reasonLower.includes("no-answer") ||
+                         reasonLower.includes("busy")) {
                 callOutcome = "NO_ANSWER"
-              } else if (endedReason.toLowerCase().includes("failed")) {
+              } else if (reasonLower.includes("voicemail")) {
+                callOutcome = "VOICEMAIL"
+              } else if (reasonLower.includes("failed")) {
                 callOutcome = "FAILED"
               } else {
                 callOutcome = "COMPLETED"
               }
+            } else {
+              callOutcome = "COMPLETED"
             }
             break
           case "failed":
@@ -136,9 +148,24 @@ export async function updateStuckCalls() {
         if (callOutcome) updateData.callOutcome = callOutcome
         if (vapiData.endedReason) updateData.endedReason = vapiData.endedReason
         if (vapiData.recording?.url) updateData.recordingUrl = vapiData.recording.url
-        if (vapiData.summary) updateData.summary = vapiData.summary
-        if (vapiData.duration !== undefined) updateData.duration = vapiData.duration
+        if (vapiData.analysis?.summary || vapiData.summary) {
+          updateData.summary = vapiData.analysis?.summary || vapiData.summary
+        }
+        if (vapiData.durationSeconds !== undefined) {
+          updateData.duration = vapiData.durationSeconds
+        } else if (vapiData.duration !== undefined) {
+          updateData.duration = vapiData.duration
+        }
         if (vapiData.cost !== undefined) updateData.cost = vapiData.cost
+
+        // Store structured data if available
+        if (structuredData || vapiData.transcript) {
+          updateData.structuredData = {
+            transcript: vapiData.transcript || null,
+            ...(structuredData && typeof structuredData === 'object' ? structuredData : {}),
+            ...(call.structuredData && typeof call.structuredData === 'object' ? call.structuredData : {})
+          }
+        }
 
         await prisma.call.update({
           where: { id: call.id },
