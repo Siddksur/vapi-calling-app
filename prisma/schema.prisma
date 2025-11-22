@@ -270,13 +270,15 @@ model Call {
 // ============================================
 
 model Assistant {
-  id          String    @id @db.VarChar(255) // Vapi.ai assistant ID
-  tenantId    String?   @map("tenantId")
-  name        String    @db.VarChar(255)
-  description String?
-  isActive    Boolean?  @default(true) @map("is_active")
-  createdAt   DateTime? @default(now()) @map("created_at")
-  updatedAt   DateTime? @updatedAt @map("updated_at")
+  id           String    @id @db.VarChar(255) // Vapi.ai assistant ID
+  tenantId     String?   @map("tenantId")
+  name         String    @db.VarChar(255)
+  description  String?
+  systemPrompt String?   @map("system_prompt") @db.Text
+  firstMessage String?   @map("first_message") @db.Text
+  isActive     Boolean?  @default(true) @map("is_active")
+  createdAt    DateTime? @default(now()) @map("created_at")
+  updatedAt    DateTime? @updatedAt @map("updated_at")
 
   // Relations
   tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)

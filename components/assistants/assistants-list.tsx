@@ -4,8 +4,9 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { RefreshCw, Bot, AlertCircle, CheckCircle2 } from "lucide-react"
+import { RefreshCw, Bot, AlertCircle, CheckCircle2, Edit } from "lucide-react"
 import { toast } from "sonner"
+import { EditAssistantDialog } from "./edit-assistant-dialog"
 
 interface Assistant {
   id: string
@@ -18,6 +19,7 @@ export function AssistantsList() {
   const [assistants, setAssistants] = useState<Assistant[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [editingAssistant, setEditingAssistant] = useState<Assistant | null>(null)
 
   const fetchAssistants = async () => {
     try {
@@ -153,17 +155,42 @@ export function AssistantsList() {
                 )}
               </CardHeader>
               <CardContent>
-                <div className="text-xs text-gray-500 font-mono">
-                  ID: {assistant.id}
+                <div className="space-y-3">
+                  <div className="text-xs text-gray-500 font-mono">
+                    ID: {assistant.id}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setEditingAssistant(assistant)}
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      {editingAssistant && (
+        <EditAssistantDialog
+          assistantId={editingAssistant.id}
+          assistantName={editingAssistant.name}
+          open={!!editingAssistant}
+          onClose={() => setEditingAssistant(null)}
+          onSaved={() => {
+            setEditingAssistant(null)
+            fetchAssistants()
+          }}
+        />
+      )}
     </div>
   )
 }
+
 
 
 

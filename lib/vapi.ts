@@ -187,3 +187,167 @@ export async function makeVAPICall(params: MakeCallParams): Promise<{
     }
   }
 }
+
+/**
+ * Get assistant details from VAPI
+ */
+export async function getVAPIAssistant(
+  assistantId: string,
+  tenantId: string
+): Promise<{
+  success: boolean
+  assistant?: {
+    id: string
+    name: string
+    description?: string | null
+    systemPrompt?: string | null
+    firstMessage?: string | null
+  }
+  error?: string
+}> {
+  try {
+    const config = await getVAPIConfig(tenantId)
+    if (!config) {
+      return {
+        success: false,
+        error: "VAPI configuration not found for tenant"
+      }
+    }
+
+    const response = await axios.get(`${config.baseUrl}/assistant/${assistantId}`, {
+      headers: {
+        Authorization: `Bearer ${config.privateKey}`,
+        "Content-Type": "application/json"
+      }
+    })
+
+    const assistant = response.data
+
+    // Extract system prompt from model.messages array
+    let systemPrompt: string | null = null
+    if (assistant.model?.messages && Array.isArray(assistant.model.messages)) {
+      const systemMessage = assistant.model.messages.find(
+        (msg: any) => msg.role === "system"
+      )
+      if (systemMessage?.content) {
+        systemPrompt = systemMessage.content
+      }
+    }
+
+    // Extract first message
+    const firstMessage = assistant.firstMessage || null
+
+    return {
+      success: true,
+      assistant: {
+        id: assistant.id,
+        name: assistant.name || assistant.firstMessage || "Unnamed Assistant",
+        description: assistant.description || assistant.model?.provider || null,
+        systemPrompt,
+        firstMessage
+      }
+    }
+  } catch (error: any) {
+    const errorMessage = error.response?.data?.message || error.message || "Unknown error"
+    console.error(`❌ Error fetching VAPI assistant ${assistantId}:`, errorMessage)
+    return {
+      success: false,
+      error: errorMessage
+    }
+  }
+}
+
+/**
+ * Update assistant in VAPI
+ */
+export async function updateVAPIAssistant(
+  assistantId: string,
+  tenantId: string,
+  updates: {
+    systemPrompt?: string
+    firstMessage?: string
+  }
+): Promise<{
+  success: boolean
+  error?: string
+}> {
+  try {
+    const config = await getVAPIConfig(tenantId)
+    if (!config) {
+      return {
+        success: false,
+        error: "VAPI configuration not found for tenant"
+      }
+    }
+
+    // First, fetch current assistant to preserve existing structure
+    const currentResponse = await axios.get(`${config.baseUrl}/assistant/${assistantId}`, {
+      headers: {
+        Authorization: `Bearer ${config.privateKey}`,
+        "Content-Type": "application/json"
+      }
+    })
+
+    const currentAssistant = currentResponse.data
+
+    // Build update payload
+    const updatePayload: any = {}
+
+    // Update first message if provided
+    if (updates.firstMessage !== undefined) {
+      updatePayload.firstMessage = updates.firstMessage
+    }
+
+    // Update system prompt if provided
+    if (updates.systemPrompt !== undefined) {
+      // Preserve existing model structure
+      const existingModel = currentAssistant.model || {}
+      const existingMessages = existingModel.messages || []
+      
+      // Find and update system message, or add it if it doesn't exist
+      const systemMessageIndex = existingMessages.findIndex(
+        (msg: any) => msg.role === "system"
+      )
+
+      if (systemMessageIndex >= 0) {
+        // Update existing system message
+        existingMessages[systemMessageIndex] = {
+          ...existingMessages[systemMessageIndex],
+          content: updates.systemPrompt
+        }
+      } else {
+        // Add new system message at the beginning
+        existingMessages.unshift({
+          role: "system",
+          content: updates.systemPrompt
+        })
+      }
+
+      updatePayload.model = {
+        ...existingModel,
+        messages: existingMessages
+      }
+    }
+
+    // Update assistant in VAPI
+    await axios.patch(`${config.baseUrl}/assistant/${assistantId}`, updatePayload, {
+      headers: {
+        Authorization: `Bearer ${config.privateKey}`,
+        "Content-Type": "application/json"
+      }
+    })
+
+    console.log(`✅ Successfully updated VAPI assistant ${assistantId}`)
+
+    return {
+      success: true
+    }
+  } catch (error: any) {
+    const errorMessage = error.response?.data?.message || error.message || "Unknown error"
+    console.error(`❌ Error updating VAPI assistant ${assistantId}:`, errorMessage)
+    return {
+      success: false,
+      error: errorMessage
+    }
+  }
+}

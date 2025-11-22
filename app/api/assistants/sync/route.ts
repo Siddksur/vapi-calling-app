@@ -86,11 +86,27 @@ export async function POST(request: NextRequest) {
 
     for (const vapiAssistant of vapiAssistants) {
       try {
+        // Extract system prompt from model.messages array
+        let systemPrompt: string | null = null
+        if (vapiAssistant.model?.messages && Array.isArray(vapiAssistant.model.messages)) {
+          const systemMessage = vapiAssistant.model.messages.find(
+            (msg: any) => msg.role === "system"
+          )
+          if (systemMessage?.content) {
+            systemPrompt = systemMessage.content
+          }
+        }
+
+        // Extract first message
+        const firstMessage = vapiAssistant.firstMessage || null
+
         const assistant = await prisma.assistant.upsert({
           where: { id: vapiAssistant.id },
           update: {
             name: vapiAssistant.name || vapiAssistant.firstMessage || "Unnamed Assistant",
             description: vapiAssistant.model?.provider || vapiAssistant.description || null,
+            systemPrompt: systemPrompt,
+            firstMessage: firstMessage,
             isActive: true,
             updatedAt: new Date()
           },
@@ -99,6 +115,8 @@ export async function POST(request: NextRequest) {
             tenantId: tenantId,
             name: vapiAssistant.name || vapiAssistant.firstMessage || "Unnamed Assistant",
             description: vapiAssistant.model?.provider || vapiAssistant.description || null,
+            systemPrompt: systemPrompt,
+            firstMessage: firstMessage,
             isActive: true
           }
         })
