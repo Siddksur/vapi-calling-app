@@ -8,6 +8,9 @@ import Link from "next/link"
 import { Plus, Building2, Users, Phone } from "lucide-react"
 import { ClientTable } from "@/components/admin/client-table"
 
+// Force dynamic rendering since we use auth() which calls headers()
+export const dynamic = 'force-dynamic'
+
 export default async function AdminClientsPage() {
   try {
     const session = await auth()
